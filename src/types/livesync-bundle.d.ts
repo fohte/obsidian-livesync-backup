@@ -16,9 +16,7 @@ declare module '*/vendor-dist/direct-file-manipulator.mjs' {
       enableCompression?: boolean
       handleFilenameCaseSensitive?: boolean
     })
-    enumerateAllNormalDocs(opt: {
-      metaOnly: boolean
-    }): AsyncIterable<
+    enumerateAllNormalDocs(opt: { metaOnly: boolean }): AsyncIterable<
       | false
       | {
           path: string
