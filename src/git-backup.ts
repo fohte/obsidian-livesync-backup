@@ -116,32 +116,41 @@ export class GitBackup {
   }
 
   /**
-   * Replaces the contents of the vault subdir with `files`. Existing files
-   * inside the subdir are removed first so deletions in the source are
-   * reflected.
+   * Empties the vault subdir so that subsequent {@link writeFile} calls can
+   * write the new vault state and `git add -A` will pick up deletions.
    */
-  async syncFiles(files: ReadonlyArray<VaultFile>): Promise<void> {
+  async beginVaultSync(): Promise<void> {
     const vaultRoot = join(this.cloneDir, this.config.vaultSubdir)
-    await mkdir(vaultRoot, { recursive: true })
     if (!isPathInside(this.cloneDir, vaultRoot)) {
       throw new Error('vaultSubdir escapes clone directory')
     }
+    await mkdir(vaultRoot, { recursive: true })
     removeAllFiles(vaultRoot)
-    for (const file of files) {
-      const normalized = posix.normalize(file.path).replace(/^\/+/, '')
-      if (normalized.startsWith('../') || normalized.includes('/../')) {
-        throw new Error('invalid vault file path')
-      }
-      const dest = join(vaultRoot, normalized)
-      if (!isPathInside(vaultRoot, dest)) {
-        throw new Error('vault file path escapes vault subdir')
-      }
-      await mkdir(dirname(dest), { recursive: true })
-      if (file.content.kind === 'text') {
-        writeFileSync(dest, file.content.text)
-      } else {
-        writeFileSync(dest, new Uint8Array(file.content.bytes))
-      }
+  }
+
+  async writeFile(file: VaultFile): Promise<void> {
+    const vaultRoot = join(this.cloneDir, this.config.vaultSubdir)
+    const normalized = posix.normalize(file.path).replace(/^\/+/, '')
+    if (normalized.startsWith('../') || normalized.includes('/../')) {
+      throw new Error('invalid vault file path')
+    }
+    const dest = join(vaultRoot, normalized)
+    if (!isPathInside(vaultRoot, dest)) {
+      throw new Error('vault file path escapes vault subdir')
+    }
+    await mkdir(dirname(dest), { recursive: true })
+    if (file.content.kind === 'text') {
+      writeFileSync(dest, file.content.text)
+    } else {
+      // @types/node's Buffer is Uint8Array<ArrayBufferLike>, which doesn't
+      // satisfy writeFileSync's `Uint8Array<ArrayBuffer>` under strictest
+      // typing. Take a same-memory view as Uint8Array<ArrayBuffer> so the
+      // call is correctly typed without copying.
+      const buffer = file.content.bytes
+      writeFileSync(
+        dest,
+        new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength),
+      )
     }
   }
 

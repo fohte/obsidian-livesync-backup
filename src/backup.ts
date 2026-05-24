@@ -7,7 +7,8 @@ import type { VaultFetcher, VaultFile } from '@/vault-fetcher'
 
 export interface GitBackend {
   clone(): Promise<void>
-  syncFiles(files: ReadonlyArray<VaultFile>): Promise<void>
+  beginVaultSync(): Promise<void>
+  writeFile(file: VaultFile): Promise<void>
   commitAndPush(message: string): Promise<CommitOutcome>
   cleanup(): void
 }
@@ -54,56 +55,51 @@ export const runBackup = async (
   const { logger, now } = deps
   const snapshotAt = now()
   const filter = new ExcludeFilter(config.exclude)
-  const fetcher = deps.fetcherFactory(config)
   const git = deps.gitFactory(config)
-
-  let fetched = 0
-  let excluded = 0
-  let masked = 0
-  const files: VaultFile[] = []
-
-  try {
-    logger.info('fetch_start')
-    for await (const file of fetcher.fetchAll()) {
-      fetched += 1
-      if (filter.isPathExcluded(file.path)) {
-        excluded += 1
-        continue
-      }
-      if (file.content.kind === 'text') {
-        const scan = filter.scanContent(file.content.text)
-        masked += scan.maskedCount
-        files.push({
-          path: file.path,
-          content: { kind: 'text', text: scan.content },
-        })
-      } else {
-        // Binary files are not scanned for secret patterns.
-        files.push(file)
-      }
-    }
-    logger.info('fetch_done', { fetched, excluded, masked })
-  } finally {
-    await closeFetcherSafely(fetcher, logger)
-  }
 
   try {
     logger.info('git_clone_start')
     await git.clone()
-    await git.syncFiles(files)
-    const message = makeCommitMessage({ snapshotAt })
-    const outcome = await git.commitAndPush(message)
+    await git.beginVaultSync()
+
+    const fetcher = deps.fetcherFactory(config)
+    let fetched = 0
+    let excluded = 0
+    let masked = 0
+    let written = 0
+    try {
+      logger.info('fetch_start')
+      for await (const file of fetcher.fetchAll()) {
+        fetched += 1
+        if (filter.isPathExcluded(file.path)) {
+          excluded += 1
+          continue
+        }
+        const toWrite: VaultFile =
+          file.content.kind === 'text'
+            ? (() => {
+                const scan = filter.scanContent(file.content.text)
+                masked += scan.maskedCount
+                return {
+                  path: file.path,
+                  content: { kind: 'text', text: scan.content },
+                }
+              })()
+            : file
+        await git.writeFile(toWrite)
+        written += 1
+      }
+      logger.info('fetch_done', { fetched, excluded, masked, written })
+    } finally {
+      await closeFetcherSafely(fetcher, logger)
+    }
+
+    const outcome = await git.commitAndPush(makeCommitMessage({ snapshotAt }))
     logger.info('git_done', {
-      written: files.length,
+      written,
       committed: outcome.committed ? 1 : 0,
     })
-    return {
-      fetched,
-      excluded,
-      masked,
-      written: files.length,
-      committed: outcome.committed,
-    }
+    return { fetched, excluded, masked, written, committed: outcome.committed }
   } finally {
     cleanupGitSafely(git, logger)
   }

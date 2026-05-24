@@ -50,15 +50,19 @@ class StubFetcher implements VaultFetcher {
 
 class StubGit implements GitBackend {
   cloned = false
-  synced: ReadonlyArray<VaultFile> = []
+  syncStarted = false
+  synced: VaultFile[] = []
   commitMessages: string[] = []
   cleanedUp = false
   constructor(public commitOutcome = true) {}
   async clone(): Promise<void> {
     this.cloned = true
   }
-  async syncFiles(files: ReadonlyArray<VaultFile>): Promise<void> {
-    this.synced = files
+  async beginVaultSync(): Promise<void> {
+    this.syncStarted = true
+  }
+  async writeFile(file: VaultFile): Promise<void> {
+    this.synced.push(file)
   }
   async commitAndPush(message: string): Promise<{ committed: boolean }> {
     this.commitMessages.push(message)
@@ -187,6 +191,25 @@ describe('runBackup', () => {
     if (synced?.content.kind === 'binary') {
       expect(synced.content.bytes.equals(bytes)).toBe(true)
     }
+  })
+
+  it('cleans up the git backend even when fetching fails', async () => {
+    class FailingFetcher implements VaultFetcher {
+      async *fetchAll(): AsyncIterable<VaultFile> {
+        throw new Error('couchdb unreachable')
+      }
+      async close(): Promise<void> {}
+    }
+    const git = new StubGit(true)
+    await expect(
+      runBackup(config, {
+        fetcherFactory: () => new FailingFetcher(),
+        gitFactory: () => git,
+        logger: new RecordingLogger(),
+        now: () => new Date('2026-05-24T15:00:00Z'),
+      }),
+    ).rejects.toThrow('couchdb unreachable')
+    expect(git.cleanedUp).toBe(true)
   })
 
   it('does not leak vault content, filenames, or credentials to logs', async () => {
