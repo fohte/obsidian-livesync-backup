@@ -6,4 +6,8 @@ export default defineConfig({
       '@': '/src',
     },
   },
+  test: {
+    include: ['src/**/*.test.ts'],
+    exclude: ['vendor/**', 'vendor-dist/**', 'node_modules/**', 'dist/**'],
+  },
 })

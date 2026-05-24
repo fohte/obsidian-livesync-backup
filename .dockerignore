@@ -1,0 +1,10 @@
+node_modules
+dist
+vendor-dist
+.git
+.github
+.vscode
+.idea
+coverage
+*.log
+.env*
