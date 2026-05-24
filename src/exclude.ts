@@ -12,7 +12,7 @@ export interface ExcludeFilterOptions {
 }
 
 export interface ContentScanResult {
-  readonly content: string | null
+  readonly content: string
   readonly maskedCount: number
 }
 
@@ -35,9 +35,8 @@ export class ExcludeFilter {
   }
 
   /**
-   * Scan file content for secret patterns. If any pattern matches, masked
-   * content is returned. Returns `content: null` when the file should be
-   * excluded entirely (currently never — masking is the default response).
+   * Scan file content for secret patterns. Matches are replaced with a
+   * redaction marker.
    */
   scanContent(content: string): ContentScanResult {
     if (this.secretRegexps.length === 0) {

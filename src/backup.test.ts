@@ -13,6 +13,10 @@ const baseConfig = (): BackupConfig => ({
     password: 'pw-SECRET',
     database: 'obsidian-v2',
     passphrase: 'phrase-SECRET',
+    obfuscatePassphrase: 'phrase-SECRET',
+    enableChunkSplitterV2: true,
+    enableCompression: false,
+    handleFilenameCaseSensitive: false,
   },
   git: {
     repository: 'https://github.com/example/repo.git',
@@ -24,6 +28,16 @@ const baseConfig = (): BackupConfig => ({
     paths: [],
     secretPatterns: ['ghp_[A-Za-z0-9]+'],
   },
+})
+
+const text = (path: string, body: string): VaultFile => ({
+  path,
+  content: { kind: 'text', text: body },
+})
+
+const binary = (path: string, bytes: Buffer): VaultFile => ({
+  path,
+  content: { kind: 'binary', bytes },
 })
 
 class StubFetcher implements VaultFetcher {
@@ -95,11 +109,11 @@ describe('runBackup', () => {
 
   it('excludes default paths and writes the rest', async () => {
     const fetcher = new StubFetcher([
-      { path: 'notes/inbox.md', content: 'note body' },
-      { path: '.obsidian/plugins/obsidian-livesync/data.json', content: '{}' },
-      { path: '.trash/old.md', content: 'trash' },
-      { path: 'tmp/draft.tmp', content: 'tmp' },
-      { path: '.obsidian/app.json', content: '{"a":1}' },
+      text('notes/inbox.md', 'note body'),
+      text('.obsidian/plugins/obsidian-livesync/data.json', '{}'),
+      text('.trash/old.md', 'trash'),
+      text('tmp/draft.tmp', 'tmp'),
+      text('.obsidian/app.json', '{"a":1}'),
     ])
     const git = new StubGit(true)
     const result = await runBackup(config, {
@@ -120,7 +134,7 @@ describe('runBackup', () => {
   it('produces a commit message with snapshot time in JST ISO 8601', async () => {
     const git = new StubGit(true)
     await runBackup(config, {
-      fetcherFactory: () => new StubFetcher([{ path: 'a.md', content: 'x' }]),
+      fetcherFactory: () => new StubFetcher([text('a.md', 'x')]),
       gitFactory: () => git,
       logger: new RecordingLogger(),
       now: () => new Date('2026-05-24T15:00:00Z'),
@@ -132,7 +146,7 @@ describe('runBackup', () => {
   it('does not commit when no diff', async () => {
     const git = new StubGit(false)
     const result = await runBackup(config, {
-      fetcherFactory: () => new StubFetcher([{ path: 'a.md', content: 'x' }]),
+      fetcherFactory: () => new StubFetcher([text('a.md', 'x')]),
       gitFactory: () => git,
       logger: new RecordingLogger(),
       now: () => new Date('2026-05-24T15:00:00Z'),
@@ -140,17 +154,39 @@ describe('runBackup', () => {
     expect(result.committed).toBe(false)
   })
 
-  it('masks secrets that match patterns', async () => {
+  it('masks secret patterns in text content', async () => {
     const git = new StubGit(true)
     const result = await runBackup(config, {
       fetcherFactory: () =>
-        new StubFetcher([{ path: 'a.md', content: 'ghp_abc123 normal' }]),
+        new StubFetcher([text('a.md', 'ghp_abc123 normal')]),
       gitFactory: () => git,
       logger: new RecordingLogger(),
       now: () => new Date('2026-05-24T15:00:00Z'),
     })
     expect(result.masked).toBe(1)
-    expect(git.synced[0]?.content).toBe('***REDACTED*** normal')
+    const synced = git.synced[0]
+    expect(synced?.content.kind).toBe('text')
+    if (synced?.content.kind === 'text') {
+      expect(synced.content.text).toBe('***REDACTED*** normal')
+    }
+  })
+
+  it('preserves binary content unchanged and skips content scan', async () => {
+    const bytes = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00])
+    const git = new StubGit(true)
+    const result = await runBackup(config, {
+      fetcherFactory: () =>
+        new StubFetcher([binary('attachments/photo.jpg', bytes)]),
+      gitFactory: () => git,
+      logger: new RecordingLogger(),
+      now: () => new Date('2026-05-24T15:00:00Z'),
+    })
+    expect(result.masked).toBe(0)
+    const synced = git.synced[0]
+    expect(synced?.content.kind).toBe('binary')
+    if (synced?.content.kind === 'binary') {
+      expect(synced.content.bytes.equals(bytes)).toBe(true)
+    }
   })
 
   it('does not leak vault content, filenames, or credentials to logs', async () => {
@@ -160,7 +196,7 @@ describe('runBackup', () => {
     const sensitivePath = 'notes/SECRET-NAME.md'
     await runBackup(config, {
       fetcherFactory: () =>
-        new StubFetcher([{ path: sensitivePath, content: sensitiveContent }]),
+        new StubFetcher([text(sensitivePath, sensitiveContent)]),
       gitFactory: () => git,
       logger,
       now: () => new Date('2026-05-24T15:00:00Z'),

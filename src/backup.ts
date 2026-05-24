@@ -27,6 +27,26 @@ export interface BackupResult {
   readonly committed: boolean
 }
 
+const closeFetcherSafely = async (
+  fetcher: VaultFetcher,
+  logger: Logger,
+): Promise<void> => {
+  try {
+    await fetcher.close()
+  } catch {
+    // Closing failures must not mask the primary backup error.
+    logger.warn('fetcher_close_failed', { kind: 'close' })
+  }
+}
+
+const cleanupGitSafely = (git: GitBackend, logger: Logger): void => {
+  try {
+    git.cleanup()
+  } catch {
+    logger.warn('git_cleanup_failed', { kind: 'cleanup' })
+  }
+}
+
 export const runBackup = async (
   config: BackupConfig,
   deps: BackupDependencies,
@@ -50,17 +70,21 @@ export const runBackup = async (
         excluded += 1
         continue
       }
-      const scan = filter.scanContent(file.content)
-      if (scan.content === null) {
-        excluded += 1
-        continue
+      if (file.content.kind === 'text') {
+        const scan = filter.scanContent(file.content.text)
+        masked += scan.maskedCount
+        files.push({
+          path: file.path,
+          content: { kind: 'text', text: scan.content },
+        })
+      } else {
+        // Binary files are not scanned for secret patterns.
+        files.push(file)
       }
-      if (scan.maskedCount > 0) masked += scan.maskedCount
-      files.push({ path: file.path, content: scan.content })
     }
     logger.info('fetch_done', { fetched, excluded, masked })
   } finally {
-    await fetcher.close()
+    await closeFetcherSafely(fetcher, logger)
   }
 
   try {
@@ -81,6 +105,6 @@ export const runBackup = async (
       committed: outcome.committed,
     }
   } finally {
-    git.cleanup()
+    cleanupGitSafely(git, logger)
   }
 }
