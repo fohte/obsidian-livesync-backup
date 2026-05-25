@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:26-alpine AS builder
+FROM node:26.2.0-alpine AS builder
 WORKDIR /build
 
 RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
@@ -20,7 +20,7 @@ RUN pnpm run build
 # Trim devDependencies for the runtime image
 RUN pnpm prune --prod
 
-FROM node:26-alpine AS runtime
+FROM node:26.2.0-alpine AS runtime
 WORKDIR /app
 
 # git is required by simple-git
