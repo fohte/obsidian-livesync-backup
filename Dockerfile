@@ -3,8 +3,7 @@
 FROM node:26.2.0-alpine AS builder
 WORKDIR /build
 
-# corepack was removed from Node.js core in v25 (nodejs/node#59803), so install it explicitly.
-# pnpm version is resolved from the `packageManager` field in package.json.
+# Node.js images do not bundle corepack, so install it explicitly.
 RUN npm install -g corepack@latest && corepack enable
 
 # Install dependencies first for better layer caching
