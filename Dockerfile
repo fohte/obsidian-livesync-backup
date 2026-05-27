@@ -3,7 +3,9 @@
 FROM node:26.2.0-alpine AS builder
 WORKDIR /build
 
-RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
+# corepack was removed from Node.js core in v25 (nodejs/node#59803), so install it explicitly.
+# pnpm version is resolved from the `packageManager` field in package.json.
+RUN npm install -g corepack@latest && corepack enable
 
 # Install dependencies first for better layer caching
 COPY package.json pnpm-lock.yaml ./
