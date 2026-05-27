@@ -3,7 +3,8 @@
 FROM node:26.2.0-alpine AS builder
 WORKDIR /build
 
-RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
+# Node.js images do not bundle corepack, so install it explicitly.
+RUN npm install -g corepack@latest && corepack enable
 
 # Install dependencies first for better layer caching
 COPY package.json pnpm-lock.yaml ./
