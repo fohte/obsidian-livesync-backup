@@ -3,7 +3,13 @@
     "@tsconfig/node-lts/tsconfig.json",
     "@tsconfig/strictest/tsconfig.json"
   ],
-  "exclude": ["**/*.cjs"],
+  "exclude": ["**/*.cjs", "vendor", "vendor-dist", "dist"],
+  "include": [
+    "src/**/*",
+    "scripts/**/*",
+    "vitest.config.ts",
+    "eslint.config.js"
+  ],
   "compilerOptions": {
     "module": "preserve",
     "moduleResolution": "bundler",

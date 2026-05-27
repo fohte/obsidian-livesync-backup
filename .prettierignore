@@ -3,3 +3,8 @@ CHANGELOG.md
 
 # Lock files
 pnpm-lock.yaml
+
+# Third-party vendored sources
+vendor/
+vendor-dist/
+dist/

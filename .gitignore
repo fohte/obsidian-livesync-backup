@@ -1,3 +1,7 @@
+# Build output
+dist/
+vendor-dist/
+
 # Logs
 logs
 *.log
