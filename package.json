@@ -1,11 +1,7 @@
 {
   "name": "obsidian-livesync-backup",
   "private": true,
-<<<<<<< before updating
-  "packageManager": "pnpm@10.33.4",
-=======
   "packageManager": "pnpm@11.1.3",
->>>>>>> after updating
   "type": "module",
   "scripts": {
     "lint": "eslint .",
@@ -25,13 +21,12 @@
     "@fohte/eslint-config": "0.3.1",
     "@tsconfig/node-lts": "24.0.0",
     "@tsconfig/strictest": "2.0.8",
-<<<<<<< before updating
-    "@types/node": "24.12.0",
+    "@types/node": "24.12.4",
     "@types/pouchdb": "6.4.2",
     "concurrently": "9.2.1",
     "diff-match-patch": "1.0.5",
     "esbuild": "0.28.0",
-    "eslint": "10.1.0",
+    "eslint": "10.4.0",
     "fflate": "0.8.3",
     "octagonal-wheels": "0.1.45",
     "pouchdb-adapter-http": "9.0.0",
@@ -42,22 +37,14 @@
     "pouchdb-merge": "9.0.0",
     "pouchdb-replication": "9.0.0",
     "pouchdb-utils": "9.0.0",
-    "prettier": "3.8.1",
+    "prettier": "3.8.3",
     "transform-pouch": "2.0.0",
-    "typescript": "5.9.3",
-    "vitest": "4.1.2"
+    "typescript": "6.0.3",
+    "vitest": "4.1.6"
   },
   "dependencies": {
     "minimatch": "10.2.5",
     "p-limit": "7.3.0",
     "simple-git": "3.36.0"
-=======
-    "@types/node": "24.12.4",
-    "concurrently": "9.2.1",
-    "eslint": "10.4.0",
-    "prettier": "3.8.3",
-    "typescript": "6.0.3",
-    "vitest": "4.1.6"
->>>>>>> after updating
   }
 }
