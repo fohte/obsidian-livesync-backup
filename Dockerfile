@@ -7,7 +7,7 @@ WORKDIR /build
 RUN npm install -g corepack@latest && corepack enable
 
 # Install dependencies first for better layer caching
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
 # Bring in the rest of the sources (incl. vendor/livesync-bridge submodule contents)
