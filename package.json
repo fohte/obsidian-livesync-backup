@@ -1,7 +1,7 @@
 {
   "name": "obsidian-livesync-backup",
   "private": true,
-  "packageManager": "pnpm@11.5.0",
+  "packageManager": "pnpm@11.5.1",
   "type": "module",
   "scripts": {
     "lint": "eslint .",
@@ -18,12 +18,12 @@
   "devDependencies": {
     "@commitlint/cli": "21.0.2",
     "@eslint/eslintrc": "3.3.5",
-    "@fohte/eslint-config": "0.3.2",
+    "@fohte/eslint-config": "0.3.3",
     "@tsconfig/node-lts": "24.0.0",
     "@tsconfig/strictest": "2.0.8",
     "@types/node": "24.12.4",
     "@types/pouchdb": "6.4.2",
-    "concurrently": "10.0.0",
+    "concurrently": "10.0.3",
     "diff-match-patch": "1.0.5",
     "esbuild": "0.28.0",
     "eslint": "10.4.1",
@@ -40,7 +40,7 @@
     "prettier": "3.8.3",
     "transform-pouch": "2.0.0",
     "typescript": "6.0.3",
-    "vitest": "4.1.7"
+    "vitest": "4.1.8"
   },
   "dependencies": {
     "minimatch": "10.2.5",
