@@ -169,10 +169,10 @@ describe('runBackup', () => {
     })
     expect(result.masked).toBe(1)
     const synced = git.synced[0]
-    expect(synced?.content.kind).toBe('text')
-    if (synced?.content.kind === 'text') {
-      expect(synced.content.text).toBe('***REDACTED*** normal')
-    }
+    expect(synced?.content).toEqual({
+      kind: 'text',
+      text: '***REDACTED*** normal',
+    })
   })
 
   it('preserves binary content unchanged and skips content scan', async () => {
@@ -187,10 +187,10 @@ describe('runBackup', () => {
     })
     expect(result.masked).toBe(0)
     const synced = git.synced[0]
-    expect(synced?.content.kind).toBe('binary')
-    if (synced?.content.kind === 'binary') {
-      expect(synced.content.bytes.equals(bytes)).toBe(true)
-    }
+    expect(synced?.content).toEqual({
+      kind: 'binary',
+      bytes,
+    })
   })
 
   it('cleans up the git backend even when fetching fails', async () => {
