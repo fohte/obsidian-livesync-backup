@@ -39,20 +39,19 @@ const makeDeps = (): {
 describe('exchangeOctoStsToken', () => {
   it('exchanges the SA token for an installation token', async () => {
     const { deps, fetchMock, readFileMock } = makeDeps()
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(200, {
-        token: 'gh-token',
-        expires_at: '2026-07-18T01:00:00Z',
-      }),
-    )
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { token: 'gh-token' }))
     expect(await exchangeOctoStsToken(BASE_CONFIG, deps)).toBe('gh-token')
-    expect(readFileMock).toHaveBeenCalledWith(BASE_CONFIG.saTokenPath)
-    const call = fetchMock.mock.calls[0]
-    expect(call?.[0]).toBe(
+    expect(readFileMock.mock.calls[0]).toEqual([BASE_CONFIG.saTokenPath])
+    const [url, init] = fetchMock.mock.calls[0] ?? []
+    expect(url).toBe(
       'https://octo-sts.fohte.net/sts/exchange?scope=fohte%2Fobsidian-v2&identity=obsidian-livesync-backup',
     )
-    const headers = new Headers(call?.[1]?.headers)
-    expect(headers.get('authorization')).toBe('Bearer sa-token')
+    expect(init?.method).toBe('GET')
+    expect(init?.headers).toEqual({
+      authorization: 'Bearer sa-token',
+      accept: 'application/json',
+    })
+    expect(init?.signal).toBeInstanceOf(AbortSignal)
   })
 
   it('throws OctoStsAuthError on a non-ok response', async () => {
@@ -73,9 +72,25 @@ describe('exchangeOctoStsToken', () => {
     )
   })
 
+  it('throws OctoStsAuthError when the response body is not JSON', async () => {
+    const { deps, fetchMock } = makeDeps()
+    fetchMock.mockResolvedValueOnce(new Response('not json', { status: 200 }))
+    await expect(exchangeOctoStsToken(BASE_CONFIG, deps)).rejects.toThrow(
+      OctoStsAuthError,
+    )
+  })
+
   it('throws OctoStsAuthError when the response body is malformed', async () => {
     const { deps, fetchMock } = makeDeps()
-    fetchMock.mockResolvedValueOnce(jsonResponse(200, { token: 'only' }))
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { not_token: 'x' }))
+    await expect(exchangeOctoStsToken(BASE_CONFIG, deps)).rejects.toThrow(
+      OctoStsAuthError,
+    )
+  })
+
+  it('throws OctoStsAuthError when the SA token file cannot be read', async () => {
+    const { deps, readFileMock } = makeDeps()
+    readFileMock.mockRejectedValueOnce(new Error('ENOENT: no such file'))
     await expect(exchangeOctoStsToken(BASE_CONFIG, deps)).rejects.toThrow(
       OctoStsAuthError,
     )
@@ -85,20 +100,8 @@ describe('exchangeOctoStsToken', () => {
     const { deps, fetchMock, readFileMock } = makeDeps()
     readFileMock.mockResolvedValueOnce('   \n')
     await expect(exchangeOctoStsToken(BASE_CONFIG, deps)).rejects.toThrow(
-      /SA token at .* is empty/,
+      'octo-sts exchange aborted: SA token at /var/run/secrets/tokens/octo-sts-token is empty',
     )
     expect(fetchMock).not.toHaveBeenCalled()
-  })
-
-  it('passes an AbortSignal to fetch for the exchange timeout', async () => {
-    const { deps, fetchMock } = makeDeps()
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(200, {
-        token: 'tok',
-        expires_at: '2026-07-18T01:00:00Z',
-      }),
-    )
-    await exchangeOctoStsToken(BASE_CONFIG, deps)
-    expect(fetchMock.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal)
   })
 })

@@ -14,7 +14,6 @@ export interface OctoStsDeps {
 
 interface ExchangeResponse {
   token: string
-  expires_at: string
 }
 
 const EXCHANGE_TIMEOUT_MS = 10_000
@@ -30,7 +29,16 @@ export const exchangeOctoStsToken = async (
   const fetchImpl = deps.fetch ?? fetch
   const readFileImpl = deps.readFile ?? ((path) => readFile(path, 'utf-8'))
 
-  const saToken = (await readFileImpl(config.saTokenPath)).trim()
+  let rawToken: string
+  try {
+    rawToken = await readFileImpl(config.saTokenPath)
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause)
+    throw new OctoStsAuthError(
+      `octo-sts exchange failed to read SA token at ${config.saTokenPath}: ${message}`,
+    )
+  }
+  const saToken = rawToken.trim()
   if (saToken === '') {
     throw new OctoStsAuthError(
       `octo-sts exchange aborted: SA token at ${config.saTokenPath} is empty`,
@@ -62,7 +70,12 @@ export const exchangeOctoStsToken = async (
     )
   }
 
-  const json: unknown = await res.json()
+  let json: unknown
+  try {
+    json = await res.json()
+  } catch {
+    throw new OctoStsAuthError('octo-sts exchange returned non-JSON body')
+  }
   if (!isExchangeResponse(json)) {
     throw new OctoStsAuthError('octo-sts exchange returned malformed body')
   }
@@ -73,6 +86,4 @@ const isExchangeResponse = (value: unknown): value is ExchangeResponse =>
   typeof value === 'object' &&
   value !== null &&
   'token' in value &&
-  typeof value.token === 'string' &&
-  'expires_at' in value &&
-  typeof value.expires_at === 'string'
+  typeof value.token === 'string'
