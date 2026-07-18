@@ -1,3 +1,4 @@
+import { exchangeOctoStsToken } from '@/auth/octo-sts'
 import { runBackup } from '@/backup'
 import { ConfigError, loadConfig } from '@/config'
 import { GitBackup } from '@/git-backup'
@@ -18,10 +19,18 @@ const main = async (): Promise<number> => {
     return 2
   }
 
+  let gitToken: string
+  try {
+    gitToken = await exchangeOctoStsToken(config.octoSts)
+  } catch (err) {
+    logger.error('octo_sts_auth_failed', { kind: classifyError(err) })
+    return 2
+  }
+
   try {
     await runBackup(config, {
       fetcherFactory: (c) => new LivesyncVaultFetcher(c.couchdb),
-      gitFactory: (c) => new GitBackup(c.git),
+      gitFactory: (c) => new GitBackup({ ...c.git, token: gitToken }),
       logger,
       now: () => new Date(),
     })
