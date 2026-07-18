@@ -11,18 +11,44 @@ const fullEnv = (): Record<string, string> => ({
   GIT_REPOSITORY: 'https://github.com/example/repo.git',
   GIT_BRANCH: 'main',
   GIT_VAULT_SUBDIR: 'src',
-  GIT_TOKEN: 'pat',
+  OCTO_STS_URL: 'https://octo-sts.fohte.net',
+  OCTO_STS_SCOPE: 'fohte/obsidian-v2',
+  OCTO_STS_IDENTITY: 'obsidian-livesync-backup',
+  OCTO_STS_SA_TOKEN_PATH: '/var/run/secrets/tokens/octo-sts-token',
   EXCLUDE_PATHS: 'foo/**\nbar/baz',
   EXCLUDE_SECRET_PATTERNS: 'sk-[A-Za-z0-9]+',
 })
 
 describe('loadConfig', () => {
   it('parses a complete env into BackupConfig', () => {
-    const cfg = loadConfig(fullEnv())
-    expect(cfg.couchdb.url).toBe('http://couchdb.local:5984')
-    expect(cfg.git.vaultSubdir).toBe('src')
-    expect(cfg.exclude.paths).toEqual(['foo/**', 'bar/baz'])
-    expect(cfg.exclude.secretPatterns).toEqual(['sk-[A-Za-z0-9]+'])
+    expect(loadConfig(fullEnv())).toEqual({
+      couchdb: {
+        url: 'http://couchdb.local:5984',
+        username: 'obsidian-livesync-backup',
+        password: 'pw',
+        database: 'obsidian-v2',
+        passphrase: 'phrase',
+        obfuscatePassphrase: 'phrase',
+        enableChunkSplitterV2: true,
+        enableCompression: false,
+        handleFilenameCaseSensitive: false,
+      },
+      git: {
+        repository: 'https://github.com/example/repo.git',
+        branch: 'main',
+        vaultSubdir: 'src',
+      },
+      octoSts: {
+        url: 'https://octo-sts.fohte.net',
+        scope: 'fohte/obsidian-v2',
+        identity: 'obsidian-livesync-backup',
+        saTokenPath: '/var/run/secrets/tokens/octo-sts-token',
+      },
+      exclude: {
+        paths: ['foo/**', 'bar/baz'],
+        secretPatterns: ['sk-[A-Za-z0-9]+'],
+      },
+    })
   })
 
   it('defaults optional lists to empty arrays', () => {
@@ -30,8 +56,7 @@ describe('loadConfig', () => {
     delete env['EXCLUDE_PATHS']
     delete env['EXCLUDE_SECRET_PATTERNS']
     const cfg = loadConfig(env)
-    expect(cfg.exclude.paths).toEqual([])
-    expect(cfg.exclude.secretPatterns).toEqual([])
+    expect(cfg.exclude).toEqual({ paths: [], secretPatterns: [] })
   })
 
   it.each([
@@ -43,7 +68,10 @@ describe('loadConfig', () => {
     'GIT_REPOSITORY',
     'GIT_BRANCH',
     'GIT_VAULT_SUBDIR',
-    'GIT_TOKEN',
+    'OCTO_STS_URL',
+    'OCTO_STS_SCOPE',
+    'OCTO_STS_IDENTITY',
+    'OCTO_STS_SA_TOKEN_PATH',
   ])('throws ConfigError when %s is missing', (key) => {
     const env: Record<string, string | undefined> = fullEnv()
     env[key] = undefined

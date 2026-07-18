@@ -22,7 +22,12 @@ const baseConfig = (): BackupConfig => ({
     repository: 'https://github.com/example/repo.git',
     branch: 'main',
     vaultSubdir: 'src',
-    token: 'ghp_SECRET',
+  },
+  octoSts: {
+    url: 'https://octo-sts.fohte.net',
+    scope: 'fohte/repo',
+    identity: 'obsidian-livesync-backup',
+    saTokenPath: '/var/run/secrets/tokens/octo-sts-token',
   },
   exclude: {
     paths: [],
@@ -230,6 +235,5 @@ describe('runBackup', () => {
     expect(joined).not.toContain('SECRET-NAME')
     expect(joined).not.toContain(config.couchdb.password)
     expect(joined).not.toContain(config.couchdb.passphrase)
-    expect(joined).not.toContain(config.git.token)
   })
 })

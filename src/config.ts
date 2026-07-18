@@ -14,7 +14,12 @@ export interface BackupConfig {
     repository: string
     branch: string
     vaultSubdir: string
-    token: string
+  }
+  octoSts: {
+    url: string
+    scope: string
+    identity: string
+    saTokenPath: string
   }
   exclude: {
     paths: string[]
@@ -95,7 +100,12 @@ export const loadConfig = (env: EnvSource = process.env): BackupConfig => {
       repository: required(env, 'GIT_REPOSITORY'),
       branch: required(env, 'GIT_BRANCH'),
       vaultSubdir: required(env, 'GIT_VAULT_SUBDIR'),
-      token: required(env, 'GIT_TOKEN'),
+    },
+    octoSts: {
+      url: required(env, 'OCTO_STS_URL'),
+      scope: required(env, 'OCTO_STS_SCOPE'),
+      identity: required(env, 'OCTO_STS_IDENTITY'),
+      saTokenPath: required(env, 'OCTO_STS_SA_TOKEN_PATH'),
     },
     exclude: {
       paths: optionalList(env, 'EXCLUDE_PATHS'),
