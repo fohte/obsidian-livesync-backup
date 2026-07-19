@@ -4,6 +4,9 @@
 // submodule under `vendor/livesync-bridge`).
 declare module '*/vendor-dist/direct-file-manipulator.mjs' {
   export class DirectFileManipulator {
+    // Resolves once the underlying PouchDB instance has connected; methods
+    // like enumerateAllNormalDocs() throw if called before this resolves.
+    readonly ready: { promise: Promise<void> }
     constructor(options: {
       url: string
       username: string

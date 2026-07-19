@@ -22,6 +22,36 @@ export interface VaultFetcher {
 const TEXT_ENTRY_TYPE = 'plain'
 const BINARY_ENTRY_TYPE = 'newnote'
 
+// DirectFileManipulatorV2.ts's constructor never calls `ready.reject()` on a
+// connection failure, so an unbounded await would hang forever instead of
+// surfacing through the normal error-logging path.
+const READY_TIMEOUT_MS = 30_000
+
+export class VaultFetcherTimeoutError extends Error {
+  override readonly name = 'VaultFetcherTimeoutError'
+}
+
+const waitReady = (ready: Promise<void>, timeoutMs: number): Promise<void> =>
+  new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(
+        new VaultFetcherTimeoutError(
+          `timed out after ${timeoutMs.toString()}ms waiting for the CouchDB connection to become ready`,
+        ),
+      )
+    }, timeoutMs)
+    ready.then(
+      () => {
+        clearTimeout(timer)
+        resolve()
+      },
+      (err: unknown) => {
+        clearTimeout(timer)
+        reject(err instanceof Error ? err : new Error(String(err)))
+      },
+    )
+  })
+
 export class LivesyncVaultFetcher implements VaultFetcher {
   private readonly dfm: DirectFileManipulator
 
@@ -40,6 +70,9 @@ export class LivesyncVaultFetcher implements VaultFetcher {
   }
 
   async *fetchAll(): AsyncIterable<VaultFile> {
+    // DirectFileManipulator connects to CouchDB asynchronously in its
+    // constructor; enumerateAllNormalDocs() throws if called beforehand.
+    await waitReady(this.dfm.ready.promise, READY_TIMEOUT_MS)
     for await (const entry of this.dfm.enumerateAllNormalDocs({
       metaOnly: false,
     })) {
