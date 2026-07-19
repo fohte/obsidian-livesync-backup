@@ -1,28 +1,40 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { BackupConfig } from '@/config'
 
-let resolveReady: () => void
-let enumerateCalled = false
+type FakeEntry = false | { path: string; data: string[]; type?: string }
+
+const state = vi.hoisted(() => ({
+  resolveReady: undefined as (() => void) | undefined,
+  entries: [] as FakeEntry[],
+  enumerateCallCount: 0,
+}))
 
 vi.mock('../vendor-dist/direct-file-manipulator.mjs', () => {
   class DirectFileManipulator {
     readonly ready: { promise: Promise<void> }
     constructor() {
-      this.ready = { promise: new Promise<void>((r) => (resolveReady = r)) }
+      this.ready = {
+        promise: new Promise<void>((resolve) => {
+          state.resolveReady = resolve
+        }),
+      }
     }
     async *enumerateAllNormalDocs() {
-      enumerateCalled = true
-      yield { path: 'a.md', data: ['hello'], type: 'plain' }
+      state.enumerateCallCount++
+      for (const entry of state.entries) yield entry
     }
     async close() {}
   }
   return { DirectFileManipulator }
 })
 
-const { LivesyncVaultFetcher } = await import('@/vault-fetcher')
+const { LivesyncVaultFetcher, VaultFetcherTimeoutError } =
+  await import('@/vault-fetcher')
 
-const couchdbConfig: BackupConfig['couchdb'] = {
+// Every field is irrelevant to the contracts under test: DirectFileManipulator
+// itself is replaced by the mock above, so none of these values are read.
+const couchdbConfig = (): BackupConfig['couchdb'] => ({
   url: 'http://couchdb:5984',
   username: 'u',
   password: 'pw',
@@ -32,24 +44,74 @@ const couchdbConfig: BackupConfig['couchdb'] = {
   enableChunkSplitterV2: true,
   enableCompression: false,
   handleFilenameCaseSensitive: false,
+})
+
+const collect = async <T>(iterable: AsyncIterable<T>): Promise<T[]> => {
+  const items: T[] = []
+  for await (const item of iterable) items.push(item)
+  return items
 }
 
+const flushMicrotasks = async (): Promise<void> => {
+  await new Promise((resolve) => setImmediate(resolve))
+}
+
+beforeEach(() => {
+  state.resolveReady = undefined
+  state.entries = []
+  state.enumerateCallCount = 0
+})
+
 describe('LivesyncVaultFetcher.fetchAll', () => {
-  it('waits for DirectFileManipulator to be ready before enumerating docs', async () => {
-    enumerateCalled = false
-    const fetcher = new LivesyncVaultFetcher(couchdbConfig)
-    const iterator = fetcher.fetchAll()[Symbol.asyncIterator]()
-    const nextPromise = iterator.next()
+  it('does not enumerate docs until the CouchDB connection is ready', async () => {
+    const fetcher = new LivesyncVaultFetcher(couchdbConfig())
+    const done = collect(fetcher.fetchAll())
 
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(enumerateCalled).toBe(false)
+    await flushMicrotasks()
+    expect(state.enumerateCallCount).toBe(0)
 
-    resolveReady()
-    expect(await nextPromise).toEqual({
-      done: false,
-      value: { path: 'a.md', content: { kind: 'text', text: 'hello' } },
-    })
-    expect(enumerateCalled).toBe(true)
+    state.resolveReady?.()
+    await done
+
+    expect(state.enumerateCallCount).toBe(1)
+  })
+
+  it('maps raw entries to vault files, skipping unusable ones', async () => {
+    state.entries = [
+      { path: 'notes/a.md', data: ['hello ', 'world'], type: 'plain' },
+      {
+        path: 'attachments/photo.jpg',
+        data: [Buffer.from([0xff, 0xd8]).toString('base64')],
+        type: 'newnote',
+      },
+      false,
+      { path: '', data: ['x'], type: 'plain' },
+      { path: 'internal/ignored', data: ['x'], type: 'other' },
+    ]
+    const fetcher = new LivesyncVaultFetcher(couchdbConfig())
+    const done = collect(fetcher.fetchAll())
+    state.resolveReady?.()
+
+    expect(await done).toEqual([
+      { path: 'notes/a.md', content: { kind: 'text', text: 'hello world' } },
+      {
+        path: 'attachments/photo.jpg',
+        content: { kind: 'binary', bytes: Buffer.from([0xff, 0xd8]) },
+      },
+    ])
+  })
+
+  it('rejects with VaultFetcherTimeoutError when the connection never becomes ready', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetcher = new LivesyncVaultFetcher(couchdbConfig())
+      const done = collect(fetcher.fetchAll())
+      const advance = vi.advanceTimersByTimeAsync(30_000)
+
+      await expect(done).rejects.toBeInstanceOf(VaultFetcherTimeoutError)
+      await advance
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
