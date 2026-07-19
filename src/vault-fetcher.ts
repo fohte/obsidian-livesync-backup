@@ -40,6 +40,9 @@ export class LivesyncVaultFetcher implements VaultFetcher {
   }
 
   async *fetchAll(): AsyncIterable<VaultFile> {
+    // DirectFileManipulator connects to CouchDB asynchronously in its
+    // constructor; enumerateAllNormalDocs() throws if called beforehand.
+    await this.dfm.ready.promise
     for await (const entry of this.dfm.enumerateAllNormalDocs({
       metaOnly: false,
     })) {
