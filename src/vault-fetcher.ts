@@ -1,4 +1,4 @@
-import type { BackupConfig } from '@/config'
+import type { BackupConfig } from '#config'
 
 import { DirectFileManipulator } from '../vendor-dist/direct-file-manipulator.mjs'
 

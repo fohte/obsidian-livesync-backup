@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { ExcludeFilter } from '@/exclude'
+import { ExcludeFilter } from '#exclude'
 
 describe('ExcludeFilter path rules', () => {
   const filter = new ExcludeFilter({

@@ -1,5 +1,7 @@
 import { readFile } from 'node:fs/promises'
 
+import { errAsync, okAsync, ResultAsync } from 'neverthrow'
+
 export interface OctoStsConfig {
   readonly url: string
   readonly scope: string
@@ -22,64 +24,73 @@ export class OctoStsAuthError extends Error {
   override readonly name = 'OctoStsAuthError'
 }
 
-export const exchangeOctoStsToken = async (
+export const exchangeOctoStsToken = (
   config: OctoStsConfig,
   deps: OctoStsDeps = {},
-): Promise<string> => {
+): ResultAsync<string, OctoStsAuthError> => {
   const fetchImpl = deps.fetch ?? fetch
   const readFileImpl = deps.readFile ?? ((path) => readFile(path, 'utf-8'))
 
-  let rawToken: string
-  try {
-    rawToken = await readFileImpl(config.saTokenPath)
-  } catch (cause) {
+  return ResultAsync.fromPromise(readFileImpl(config.saTokenPath), (cause) => {
     const message = cause instanceof Error ? cause.message : String(cause)
-    throw new OctoStsAuthError(
+    return new OctoStsAuthError(
       `octo-sts exchange failed to read SA token at ${config.saTokenPath}: ${message}`,
     )
-  }
-  const saToken = rawToken.trim()
-  if (saToken === '') {
-    throw new OctoStsAuthError(
-      `octo-sts exchange aborted: SA token at ${config.saTokenPath} is empty`,
-    )
-  }
-
-  const url = new URL('/sts/exchange', config.url)
-  url.searchParams.set('scope', config.scope)
-  url.searchParams.set('identity', config.identity)
-
-  let res: Response
-  try {
-    res = await fetchImpl(url.toString(), {
-      method: 'GET',
-      headers: {
-        authorization: `Bearer ${saToken}`,
-        accept: 'application/json',
-      },
-      signal: AbortSignal.timeout(EXCHANGE_TIMEOUT_MS),
+  })
+    .andThen((rawToken) => {
+      const saToken = rawToken.trim()
+      if (saToken === '') {
+        return errAsync(
+          new OctoStsAuthError(
+            `octo-sts exchange aborted: SA token at ${config.saTokenPath} is empty`,
+          ),
+        )
+      }
+      return okAsync(saToken)
     })
-  } catch (cause) {
-    const message = cause instanceof Error ? cause.message : String(cause)
-    throw new OctoStsAuthError(`octo-sts exchange network error: ${message}`)
-  }
+    .andThen((saToken) => {
+      const url = new URL('/sts/exchange', config.url)
+      url.searchParams.set('scope', config.scope)
+      url.searchParams.set('identity', config.identity)
 
-  if (!res.ok) {
-    throw new OctoStsAuthError(
-      `octo-sts exchange failed: HTTP ${String(res.status)}`,
-    )
-  }
-
-  let json: unknown
-  try {
-    json = await res.json()
-  } catch {
-    throw new OctoStsAuthError('octo-sts exchange returned non-JSON body')
-  }
-  if (!isExchangeResponse(json)) {
-    throw new OctoStsAuthError('octo-sts exchange returned malformed body')
-  }
-  return json.token
+      return ResultAsync.fromPromise(
+        fetchImpl(url.toString(), {
+          method: 'GET',
+          headers: {
+            authorization: `Bearer ${saToken}`,
+            accept: 'application/json',
+          },
+          signal: AbortSignal.timeout(EXCHANGE_TIMEOUT_MS),
+        }),
+        (cause) => {
+          const message = cause instanceof Error ? cause.message : String(cause)
+          return new OctoStsAuthError(
+            `octo-sts exchange network error: ${message}`,
+          )
+        },
+      )
+    })
+    .andThen((res) => {
+      if (!res.ok) {
+        return errAsync(
+          new OctoStsAuthError(
+            `octo-sts exchange failed: HTTP ${String(res.status)}`,
+          ),
+        )
+      }
+      return ResultAsync.fromPromise(
+        res.json(),
+        () => new OctoStsAuthError('octo-sts exchange returned non-JSON body'),
+      )
+    })
+    .andThen((json) => {
+      if (!isExchangeResponse(json)) {
+        return errAsync(
+          new OctoStsAuthError('octo-sts exchange returned malformed body'),
+        )
+      }
+      return okAsync(json.token)
+    })
 }
 
 const isExchangeResponse = (value: unknown): value is ExchangeResponse =>

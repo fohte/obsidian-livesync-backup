@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { ConfigError, loadConfig } from '@/config'
+import { ConfigError, loadConfig } from '#config'
 
 const fullEnv = (): Record<string, string> => ({
   COUCHDB_URL: 'http://couchdb.local:5984',
@@ -21,7 +21,7 @@ const fullEnv = (): Record<string, string> => ({
 
 describe('loadConfig', () => {
   it('parses a complete env into BackupConfig', () => {
-    expect(loadConfig(fullEnv())).toEqual({
+    expect(loadConfig(fullEnv())._unsafeUnwrap()).toEqual({
       couchdb: {
         url: 'http://couchdb.local:5984',
         username: 'obsidian-livesync-backup',
@@ -55,7 +55,7 @@ describe('loadConfig', () => {
     const env = fullEnv()
     delete env['EXCLUDE_PATHS']
     delete env['EXCLUDE_SECRET_PATTERNS']
-    const cfg = loadConfig(env)
+    const cfg = loadConfig(env)._unsafeUnwrap()
     expect(cfg.exclude).toEqual({ paths: [], secretPatterns: [] })
   })
 
@@ -72,15 +72,15 @@ describe('loadConfig', () => {
     'OCTO_STS_SCOPE',
     'OCTO_STS_IDENTITY',
     'OCTO_STS_SA_TOKEN_PATH',
-  ])('throws ConfigError when %s is missing', (key) => {
+  ])('returns a ConfigError when %s is missing', (key) => {
     const env: Record<string, string | undefined> = fullEnv()
     env[key] = undefined
-    expect(() => loadConfig(env)).toThrow(ConfigError)
+    expect(loadConfig(env)._unsafeUnwrapErr()).toBeInstanceOf(ConfigError)
   })
 
   it('rejects empty-string values for required keys', () => {
     const env = fullEnv()
     env['COUCHDB_PASSWORD'] = ''
-    expect(() => loadConfig(env)).toThrow(ConfigError)
+    expect(loadConfig(env)._unsafeUnwrapErr()).toBeInstanceOf(ConfigError)
   })
 })

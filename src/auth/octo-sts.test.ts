@@ -5,7 +5,7 @@ import {
   OctoStsAuthError,
   type OctoStsConfig,
   type OctoStsDeps,
-} from '@/auth/octo-sts'
+} from '#auth/octo-sts'
 
 const BASE_CONFIG: OctoStsConfig = {
   url: 'https://octo-sts.fohte.net',
@@ -40,7 +40,8 @@ describe('exchangeOctoStsToken', () => {
   it('exchanges the SA token for an installation token', async () => {
     const { deps, fetchMock, readFileMock } = makeDeps()
     fetchMock.mockResolvedValueOnce(jsonResponse(200, { token: 'gh-token' }))
-    expect(await exchangeOctoStsToken(BASE_CONFIG, deps)).toBe('gh-token')
+    const result = await exchangeOctoStsToken(BASE_CONFIG, deps)
+    expect(result._unsafeUnwrap()).toBe('gh-token')
     expect(readFileMock.mock.calls[0]).toEqual([BASE_CONFIG.saTokenPath])
     const [url, init] = fetchMock.mock.calls[0] ?? []
     expect(url).toBe(
@@ -54,52 +55,48 @@ describe('exchangeOctoStsToken', () => {
     expect(init?.signal).toBeInstanceOf(AbortSignal)
   })
 
-  it('throws OctoStsAuthError on a non-ok response', async () => {
+  it('returns an OctoStsAuthError on a non-ok response', async () => {
     const { deps, fetchMock } = makeDeps()
     fetchMock.mockResolvedValueOnce(
       jsonResponse(403, { error: 'no trust policy' }),
     )
-    await expect(exchangeOctoStsToken(BASE_CONFIG, deps)).rejects.toThrow(
-      OctoStsAuthError,
-    )
+    const result = await exchangeOctoStsToken(BASE_CONFIG, deps)
+    expect(result._unsafeUnwrapErr()).toBeInstanceOf(OctoStsAuthError)
   })
 
-  it('throws OctoStsAuthError on a network error', async () => {
+  it('returns an OctoStsAuthError on a network error', async () => {
     const { deps, fetchMock } = makeDeps()
     fetchMock.mockRejectedValueOnce(new Error('socket hangup'))
-    await expect(exchangeOctoStsToken(BASE_CONFIG, deps)).rejects.toThrow(
-      OctoStsAuthError,
-    )
+    const result = await exchangeOctoStsToken(BASE_CONFIG, deps)
+    expect(result._unsafeUnwrapErr()).toBeInstanceOf(OctoStsAuthError)
   })
 
-  it('throws OctoStsAuthError when the response body is not JSON', async () => {
+  it('returns an OctoStsAuthError when the response body is not JSON', async () => {
     const { deps, fetchMock } = makeDeps()
     fetchMock.mockResolvedValueOnce(new Response('not json', { status: 200 }))
-    await expect(exchangeOctoStsToken(BASE_CONFIG, deps)).rejects.toThrow(
-      OctoStsAuthError,
-    )
+    const result = await exchangeOctoStsToken(BASE_CONFIG, deps)
+    expect(result._unsafeUnwrapErr()).toBeInstanceOf(OctoStsAuthError)
   })
 
-  it('throws OctoStsAuthError when the response body is malformed', async () => {
+  it('returns an OctoStsAuthError when the response body is malformed', async () => {
     const { deps, fetchMock } = makeDeps()
     fetchMock.mockResolvedValueOnce(jsonResponse(200, { not_token: 'x' }))
-    await expect(exchangeOctoStsToken(BASE_CONFIG, deps)).rejects.toThrow(
-      OctoStsAuthError,
-    )
+    const result = await exchangeOctoStsToken(BASE_CONFIG, deps)
+    expect(result._unsafeUnwrapErr()).toBeInstanceOf(OctoStsAuthError)
   })
 
-  it('throws OctoStsAuthError when the SA token file cannot be read', async () => {
+  it('returns an OctoStsAuthError when the SA token file cannot be read', async () => {
     const { deps, readFileMock } = makeDeps()
     readFileMock.mockRejectedValueOnce(new Error('ENOENT: no such file'))
-    await expect(exchangeOctoStsToken(BASE_CONFIG, deps)).rejects.toThrow(
-      OctoStsAuthError,
-    )
+    const result = await exchangeOctoStsToken(BASE_CONFIG, deps)
+    expect(result._unsafeUnwrapErr()).toBeInstanceOf(OctoStsAuthError)
   })
 
-  it('throws OctoStsAuthError when the SA token file is empty', async () => {
+  it('returns an OctoStsAuthError when the SA token file is empty', async () => {
     const { deps, fetchMock, readFileMock } = makeDeps()
     readFileMock.mockResolvedValueOnce('   \n')
-    await expect(exchangeOctoStsToken(BASE_CONFIG, deps)).rejects.toThrow(
+    const result = await exchangeOctoStsToken(BASE_CONFIG, deps)
+    expect(result._unsafeUnwrapErr().message).toBe(
       'octo-sts exchange aborted: SA token at /var/run/secrets/tokens/octo-sts-token is empty',
     )
     expect(fetchMock).not.toHaveBeenCalled()
