@@ -1,7 +1,7 @@
 import { ok, type Result } from 'neverthrow'
 import { beforeEach, describe, expect, it } from 'vitest'
 
-import { type GitBackend, runBackup } from '#backup'
+import { type GitBackend, runBackup, VaultFetchError } from '#backup'
 import type { BackupConfig } from '#config'
 import type { CommitOutcome, GitOperationError } from '#git-backup'
 import type { Logger, LogLevel } from '#logger'
@@ -228,7 +228,9 @@ describe('runBackup', () => {
       logger: new RecordingLogger(),
       now: () => new Date('2026-05-24T15:00:00Z'),
     })
-    expect(result.isErr()).toBe(true)
+    const unwrapped = result._unsafeUnwrapErr()
+    expect(unwrapped).toBeInstanceOf(VaultFetchError)
+    expect(unwrapped.cause).toEqual(new Error('couchdb unreachable'))
     expect(git.cleanedUp).toBe(true)
   })
 

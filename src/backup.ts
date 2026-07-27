@@ -1,4 +1,4 @@
-import { err, ok, type Result, ResultAsync } from 'neverthrow'
+import { err, ok, Result, ResultAsync } from 'neverthrow'
 
 import type { BackupConfig } from '#config'
 import { BoundaryError } from '#errors'
@@ -116,7 +116,15 @@ const performBackup = async (
   const beginResult = await git.beginVaultSync()
   if (beginResult.isErr()) return err(beginResult.error)
 
-  const fetcher = deps.fetcherFactory(config)
+  // deps.fetcherFactory constructs a third-party client (e.g. LivesyncVaultFetcher
+  // wraps DirectFileManipulator) that may throw synchronously — wrap it so a
+  // construction failure still returns a Result instead of skipping cleanup below.
+  const fetcherResult = Result.fromThrowable(
+    () => deps.fetcherFactory(config),
+    (cause) => new VaultFetchError('failed to construct vault fetcher', cause),
+  )()
+  if (fetcherResult.isErr()) return err(fetcherResult.error)
+  const fetcher = fetcherResult.value
   logger.info('fetch_start')
   const fetchResult = await fetchAndWriteAll(fetcher, git, filter)
   await closeFetcherSafely(fetcher, logger)
