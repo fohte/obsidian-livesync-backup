@@ -1,10 +1,12 @@
+import { ok, type Result } from 'neverthrow'
 import { beforeEach, describe, expect, it } from 'vitest'
 
-import { type GitBackend, runBackup } from '@/backup'
-import type { BackupConfig } from '@/config'
-import type { Logger, LogLevel } from '@/logger'
-import { SafeLogger } from '@/logger'
-import type { VaultFetcher, VaultFile } from '@/vault-fetcher'
+import { type GitBackend, runBackup } from '#backup'
+import type { BackupConfig } from '#config'
+import type { CommitOutcome, GitOperationError } from '#git-backup'
+import type { Logger, LogLevel } from '#logger'
+import { SafeLogger } from '#logger'
+import type { VaultFetcher, VaultFile } from '#vault-fetcher'
 
 const baseConfig = (): BackupConfig => ({
   couchdb: {
@@ -60,21 +62,27 @@ class StubGit implements GitBackend {
   commitMessages: string[] = []
   cleanedUp = false
   constructor(public commitOutcome = true) {}
-  async clone(): Promise<void> {
+  async clone(): Promise<Result<void, GitOperationError>> {
     this.cloned = true
+    return ok(undefined)
   }
-  async beginVaultSync(): Promise<void> {
+  async beginVaultSync(): Promise<Result<void, GitOperationError>> {
     this.syncStarted = true
+    return ok(undefined)
   }
-  async writeFile(file: VaultFile): Promise<void> {
+  async writeFile(file: VaultFile): Promise<Result<void, GitOperationError>> {
     this.synced.push(file)
+    return ok(undefined)
   }
-  async commitAndPush(message: string): Promise<{ committed: boolean }> {
+  async commitAndPush(
+    message: string,
+  ): Promise<Result<CommitOutcome, GitOperationError>> {
     this.commitMessages.push(message)
-    return { committed: this.commitOutcome }
+    return ok({ committed: this.commitOutcome })
   }
-  cleanup(): void {
+  cleanup(): Result<void, GitOperationError> {
     this.cleanedUp = true
+    return ok(undefined)
   }
 }
 
@@ -125,12 +133,14 @@ describe('runBackup', () => {
       text('.obsidian/app.json', '{"a":1}'),
     ])
     const git = new StubGit(true)
-    const result = await runBackup(config, {
-      fetcherFactory: () => fetcher,
-      gitFactory: () => git,
-      logger: new RecordingLogger(),
-      now: () => new Date('2026-05-24T15:00:00Z'),
-    })
+    const result = (
+      await runBackup(config, {
+        fetcherFactory: () => fetcher,
+        gitFactory: () => git,
+        logger: new RecordingLogger(),
+        now: () => new Date('2026-05-24T15:00:00Z'),
+      })
+    )._unsafeUnwrap()
     expect(result.fetched).toBe(5)
     expect(result.excluded).toBe(3)
     expect(result.written).toBe(2)
@@ -154,24 +164,28 @@ describe('runBackup', () => {
 
   it('does not commit when no diff', async () => {
     const git = new StubGit(false)
-    const result = await runBackup(config, {
-      fetcherFactory: () => new StubFetcher([text('a.md', 'x')]),
-      gitFactory: () => git,
-      logger: new RecordingLogger(),
-      now: () => new Date('2026-05-24T15:00:00Z'),
-    })
+    const result = (
+      await runBackup(config, {
+        fetcherFactory: () => new StubFetcher([text('a.md', 'x')]),
+        gitFactory: () => git,
+        logger: new RecordingLogger(),
+        now: () => new Date('2026-05-24T15:00:00Z'),
+      })
+    )._unsafeUnwrap()
     expect(result.committed).toBe(false)
   })
 
   it('masks secret patterns in text content', async () => {
     const git = new StubGit(true)
-    const result = await runBackup(config, {
-      fetcherFactory: () =>
-        new StubFetcher([text('a.md', 'ghp_abc123 normal')]),
-      gitFactory: () => git,
-      logger: new RecordingLogger(),
-      now: () => new Date('2026-05-24T15:00:00Z'),
-    })
+    const result = (
+      await runBackup(config, {
+        fetcherFactory: () =>
+          new StubFetcher([text('a.md', 'ghp_abc123 normal')]),
+        gitFactory: () => git,
+        logger: new RecordingLogger(),
+        now: () => new Date('2026-05-24T15:00:00Z'),
+      })
+    )._unsafeUnwrap()
     expect(result.masked).toBe(1)
     const synced = git.synced[0]
     expect(synced?.content).toEqual({
@@ -183,13 +197,15 @@ describe('runBackup', () => {
   it('preserves binary content unchanged and skips content scan', async () => {
     const bytes = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00])
     const git = new StubGit(true)
-    const result = await runBackup(config, {
-      fetcherFactory: () =>
-        new StubFetcher([binary('attachments/photo.jpg', bytes)]),
-      gitFactory: () => git,
-      logger: new RecordingLogger(),
-      now: () => new Date('2026-05-24T15:00:00Z'),
-    })
+    const result = (
+      await runBackup(config, {
+        fetcherFactory: () =>
+          new StubFetcher([binary('attachments/photo.jpg', bytes)]),
+        gitFactory: () => git,
+        logger: new RecordingLogger(),
+        now: () => new Date('2026-05-24T15:00:00Z'),
+      })
+    )._unsafeUnwrap()
     expect(result.masked).toBe(0)
     const synced = git.synced[0]
     expect(synced?.content).toEqual({
@@ -206,14 +222,13 @@ describe('runBackup', () => {
       async close(): Promise<void> {}
     }
     const git = new StubGit(true)
-    await expect(
-      runBackup(config, {
-        fetcherFactory: () => new FailingFetcher(),
-        gitFactory: () => git,
-        logger: new RecordingLogger(),
-        now: () => new Date('2026-05-24T15:00:00Z'),
-      }),
-    ).rejects.toThrow('couchdb unreachable')
+    const result = await runBackup(config, {
+      fetcherFactory: () => new FailingFetcher(),
+      gitFactory: () => git,
+      logger: new RecordingLogger(),
+      now: () => new Date('2026-05-24T15:00:00Z'),
+    })
+    expect(result.isErr()).toBe(true)
     expect(git.cleanedUp).toBe(true)
   })
 

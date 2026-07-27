@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { BackupConfig } from '@/config'
+import type { BackupConfig } from '#config'
 
 type FakeEntry = false | { path: string; data: string[]; type?: string }
 
@@ -30,7 +30,7 @@ vi.mock('../vendor-dist/direct-file-manipulator.mjs', () => {
 })
 
 const { LivesyncVaultFetcher, VaultFetcherTimeoutError } =
-  await import('@/vault-fetcher')
+  await import('#vault-fetcher')
 
 // Every field is irrelevant to the contracts under test: DirectFileManipulator
 // itself is replaced by the mock above, so none of these values are read.

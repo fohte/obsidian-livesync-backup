@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { SafeLogger } from '@/logger'
+import { SafeLogger } from '#logger'
 
 const collect = (): {
   sink: { write: (l: string) => void }

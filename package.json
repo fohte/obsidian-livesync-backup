@@ -44,16 +44,12 @@
     "vitest": "4.1.10"
   },
   "dependencies": {
-<<<<<<< before updating
     "minimatch": "10.2.5",
+    "neverthrow": "8.2.0",
     "p-limit": "7.3.0",
     "simple-git": "3.36.0"
-||||||| last update
-=======
-    "neverthrow": "8.2.0"
->>>>>>> after updating
   },
   "imports": {
-  "#*": "./src/*.ts"
-}
+    "#*": "./src/*.ts"
+  }
 }

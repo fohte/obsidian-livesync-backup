@@ -2,11 +2,11 @@ import { config } from '@fohte/eslint-config'
 
 export default config(
   {
-    ignores: ['vendor/**', 'vendor-dist/**', 'dist/**'],
-  },
-  {
     typescript: { typeChecked: true },
     errorHandling: {},
+  },
+  {
+    ignores: ['vendor/**', 'vendor-dist/**', 'dist/**'],
   },
   {
     files: ['src/vault-fetcher.ts'],
