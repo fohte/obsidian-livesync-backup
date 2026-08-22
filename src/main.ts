@@ -1,4 +1,5 @@
-import '#bootstrap'
+// eslint-disable-next-line simple-import-sort/imports -- must evaluate before any other module, see src/bootstrap.ts
+import { observability } from '#bootstrap'
 
 import { exchangeOctoStsToken } from '#auth/octo-sts'
 import { runBackup } from '#backup'
@@ -61,4 +62,5 @@ const classifyError = (
 }
 
 const exitCode = await main()
+await observability?.shutdown()
 process.exit(exitCode)
