@@ -25,28 +25,54 @@ describe('SafeLogger', () => {
     const logger = new SafeLogger(sink)
     logger.info('fetch_done', {
       fetched: 1,
-      path: 'notes/secret.md',
+      unknown_field: 'x',
       content: 'plaintext',
     })
     expect(lines[0]).toBe('level=info event=fetch_done fetched=1')
   })
 
-  it('does not leak secrets, paths, or content even via known keys', () => {
+  it('writes generic known keys whose values have a safe shape', () => {
     const { sink, lines } = collect()
     const logger = new SafeLogger(sink)
     logger.error('backup_failed', {
       kind: 'auth_failed',
       step: 'git_push',
     })
-    // string values are validated and only safe shapes are kept
-    expect(lines[0]).toContain('kind=auth_failed')
-    expect(lines[0]).toContain('step=git_push')
+    expect(lines[0]).toBe(
+      'level=error event=backup_failed kind=auth_failed step=git_push',
+    )
+  })
 
-    lines.length = 0
+  it('does not leak secrets or content via generic known keys', () => {
+    const { sink, lines } = collect()
+    const logger = new SafeLogger(sink)
     logger.error('backup_failed', {
       kind: 'pat ghp_AAAAAAAAA',
       step: '/tmp/clone/notes/secret.md',
     })
+    expect(lines[0]).toBe('level=error event=backup_failed')
+  })
+
+  it('allows the dedicated path field to identify a failing vault file, quoting values that contain spaces', () => {
+    const { sink, lines } = collect()
+    const logger = new SafeLogger(sink)
+    logger.error('backup_failed', { path: 'notes/inbox/My Note.md' })
+    expect(lines[0]).toBe(
+      'level=error event=backup_failed path="notes/inbox/My Note.md"',
+    )
+  })
+
+  it('drops the path field when it contains control characters', () => {
+    const { sink, lines } = collect()
+    const logger = new SafeLogger(sink)
+    logger.error('backup_failed', { path: 'notes/\n.md' })
+    expect(lines[0]).toBe('level=error event=backup_failed')
+  })
+
+  it('drops the path field when it exceeds the length limit', () => {
+    const { sink, lines } = collect()
+    const logger = new SafeLogger(sink)
+    logger.error('backup_failed', { path: 'a'.repeat(513) })
     expect(lines[0]).toBe('level=error event=backup_failed')
   })
 

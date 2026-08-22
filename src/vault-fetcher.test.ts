@@ -8,28 +8,37 @@ const state = vi.hoisted(() => ({
   resolveReady: undefined as (() => void) | undefined,
   entries: [] as FakeEntry[],
   enumerateCallCount: 0,
+  lastInstance: undefined as { $$getReplicator: () => unknown } | undefined,
+  throwAfterEntries: undefined as Error | undefined,
 }))
 
 vi.mock('../vendor-dist/direct-file-manipulator.mjs', () => {
   class DirectFileManipulator {
     readonly ready: { promise: Promise<void> }
+    // Mirrors the real upstream stub: it throws until vault-fetcher.ts
+    // overwrites it right after construction.
+    $$getReplicator: () => unknown = () => {
+      throw new Error('Method not implemented.')
+    }
     constructor() {
       this.ready = {
         promise: new Promise<void>((resolve) => {
           state.resolveReady = resolve
         }),
       }
+      state.lastInstance = this
     }
     async *enumerateAllNormalDocs() {
       state.enumerateCallCount++
       for (const entry of state.entries) yield entry
+      if (state.throwAfterEntries) throw state.throwAfterEntries
     }
     async close() {}
   }
   return { DirectFileManipulator }
 })
 
-const { LivesyncVaultFetcher, VaultFetcherTimeoutError } =
+const { LivesyncVaultFetcher, MissingChunkError, VaultFetcherTimeoutError } =
   await import('#vault-fetcher')
 
 // Every field is irrelevant to the contracts under test: DirectFileManipulator
@@ -60,6 +69,8 @@ beforeEach(() => {
   state.resolveReady = undefined
   state.entries = []
   state.enumerateCallCount = 0
+  state.lastInstance = undefined
+  state.throwAfterEntries = undefined
 })
 
 describe('LivesyncVaultFetcher.fetchAll', () => {
@@ -113,5 +124,39 @@ describe('LivesyncVaultFetcher.fetchAll', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  // This checks the constructor patches the stub itself, not the downstream
+  // crash-avoidance effect: reproducing that would require mocking
+  // ChunkFetcher's internal setTimeout/EventTarget dispatch, which is out of
+  // scope for this file's third-party boundary.
+  it('replaces the upstream $$getReplicator stub, which otherwise throws on every missing-chunk fetch attempt', () => {
+    new LivesyncVaultFetcher(couchdbConfig())
+    expect(state.lastInstance?.$$getReplicator()).toBeUndefined()
+  })
+
+  it('wraps a "Corrupted document" failure as MissingChunkError, extracting the path', async () => {
+    state.entries = [{ path: 'notes/a.md', data: ['ok'], type: 'plain' }]
+    state.throwAfterEntries = new Error(
+      'Corrupted document: notes/inbox/broken.md',
+    )
+    const fetcher = new LivesyncVaultFetcher(couchdbConfig())
+    const done = collect(fetcher.fetchAll())
+    state.resolveReady?.()
+
+    const caught: unknown = await done.catch((e: unknown) => e)
+    expect(caught).toEqual(
+      new MissingChunkError('notes/inbox/broken.md', state.throwAfterEntries),
+    )
+  })
+
+  it('propagates enumeration failures unrelated to missing chunks unchanged', async () => {
+    const boom = new Error('boom')
+    state.throwAfterEntries = boom
+    const fetcher = new LivesyncVaultFetcher(couchdbConfig())
+    const done = collect(fetcher.fetchAll())
+    state.resolveReady?.()
+
+    await expect(done).rejects.toBe(boom)
   })
 })

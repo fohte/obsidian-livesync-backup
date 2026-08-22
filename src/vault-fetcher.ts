@@ -1,4 +1,5 @@
 import type { BackupConfig } from '#config'
+import { BoundaryError } from '#errors'
 
 import { DirectFileManipulator } from '../vendor-dist/direct-file-manipulator.mjs'
 
@@ -29,6 +30,25 @@ const READY_TIMEOUT_MS = 30_000
 
 export class VaultFetcherTimeoutError extends Error {
   override readonly name = 'VaultFetcherTimeoutError'
+}
+
+// DirectFileManipulatorV2's getByMeta() throws this exact message (with the
+// file path appended) whenever it fails to fully load a document — most
+// commonly because a chunk never arrived, but also for other
+// DirectFileManipulatorV2/EntryManager read failures. There is no
+// structured field for the path, so it has to be parsed out of the message.
+const CORRUPTED_DOCUMENT_PREFIX = 'Corrupted document: '
+
+// The DirectFileManipulator/ChunkFetcher stack doesn't expose the missing
+// chunk case as a Result; wrap it at this interop boundary so callers get a
+// domain error that identifies which file failed instead of a bare Error.
+export class MissingChunkError extends BoundaryError {
+  constructor(
+    public readonly path: string,
+    cause: unknown,
+  ) {
+    super(`missing chunk(s), cannot back up file: ${path}`, cause)
+  }
 }
 
 const waitReady = (ready: Promise<void>, timeoutMs: number): Promise<void> =>
@@ -67,28 +87,53 @@ export class LivesyncVaultFetcher implements VaultFetcher {
       enableCompression: config.enableCompression,
       handleFilenameCaseSensitive: config.handleFilenameCaseSensitive,
     })
+    // $$getReplicator is a stub that unconditionally throws "Method not
+    // implemented." (there is no replicator in CLI usage). ChunkFetcher
+    // calls it from a detached `setTimeout` callback whenever a chunk is
+    // missing, so the throw becomes an unhandled rejection that crashes the
+    // process before the missing-chunk wait even times out. It's a plain
+    // public instance field, not something the constructor options can
+    // override, so it's replaced here to take ChunkFetcher's "no active
+    // replicator" branch instead, which just skips the remote fetch.
+    this.dfm.$$getReplicator = () => undefined
   }
 
   async *fetchAll(): AsyncIterable<VaultFile> {
     // DirectFileManipulator connects to CouchDB asynchronously in its
     // constructor; enumerateAllNormalDocs() throws if called beforehand.
     await waitReady(this.dfm.ready.promise, READY_TIMEOUT_MS)
-    for await (const entry of this.dfm.enumerateAllNormalDocs({
-      metaOnly: false,
-    })) {
-      if (entry === false) continue
-      const path = entry.path
-      if (path.length === 0) continue
-      const joined = entry.data.join('')
-      if (entry.type === BINARY_ENTRY_TYPE) {
-        yield {
-          path,
-          content: { kind: 'binary', bytes: Buffer.from(joined, 'base64') },
+    // eslint-disable-next-line no-restricted-syntax -- interop boundary: enumerateAllNormalDocs() is a throwing third-party async generator
+    try {
+      for await (const entry of this.dfm.enumerateAllNormalDocs({
+        metaOnly: false,
+      })) {
+        if (entry === false) continue
+        const path = entry.path
+        if (path.length === 0) continue
+        const joined = entry.data.join('')
+        if (entry.type === BINARY_ENTRY_TYPE) {
+          yield {
+            path,
+            content: { kind: 'binary', bytes: Buffer.from(joined, 'base64') },
+          }
+        } else if (entry.type === TEXT_ENTRY_TYPE) {
+          yield { path, content: { kind: 'text', text: joined } }
         }
-      } else if (entry.type === TEXT_ENTRY_TYPE) {
-        yield { path, content: { kind: 'text', text: joined } }
+        // Other entry types (legacy, internal, etc.) are skipped.
       }
-      // Other entry types (legacy, internal, etc.) are skipped.
+    } catch (cause) {
+      if (
+        cause instanceof Error &&
+        cause.message.startsWith(CORRUPTED_DOCUMENT_PREFIX)
+      ) {
+        // eslint-disable-next-line no-restricted-syntax -- interop boundary
+        throw new MissingChunkError(
+          cause.message.slice(CORRUPTED_DOCUMENT_PREFIX.length),
+          cause,
+        )
+      }
+      // eslint-disable-next-line no-restricted-syntax -- interop boundary: VaultFetcher's contract is a throwing async iterable, so unrelated failures propagate unchanged
+      throw cause
     }
   }
 
