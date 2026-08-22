@@ -1,3 +1,5 @@
+import '#bootstrap'
+
 import { exchangeOctoStsToken } from '#auth/octo-sts'
 import { runBackup } from '#backup'
 import { loadConfig } from '#config'
