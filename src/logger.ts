@@ -34,6 +34,25 @@ const isSafeValue = (v: number | string): boolean => {
   return v.length <= 32 && /^[a-z0-9_-]+$/i.test(v)
 }
 
+// `path` is a deliberate, narrow exception to the "no slashes/paths" rule
+// above: it exists solely to name the vault file behind a backup failure
+// (e.g. a missing-chunk error), the same path that would otherwise end up
+// committed into the backup git repository. It still rejects control
+// characters (which would break the single-line format) and oversized
+// values, and quotes the result like logfmt so paths containing spaces
+// don't get misread as extra fields.
+const PATH_FIELD_KEY = 'path'
+const MAX_PATH_LENGTH = 512
+
+const isSafePathValue = (v: number | string): v is string =>
+  typeof v === 'string' &&
+  v.length > 0 &&
+  v.length <= MAX_PATH_LENGTH &&
+  !/[\x00-\x1f\x7f]/.test(v)
+
+const quotePathValue = (v: string): string =>
+  `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+
 export class SafeLogger implements Logger {
   constructor(
     private readonly sink: LoggerSink = {
@@ -49,6 +68,11 @@ export class SafeLogger implements Logger {
     const safeEvent = /^[a-z][a-z0-9_]*$/.test(event) ? event : 'event'
     const parts: string[] = [`level=${level}`, `event=${safeEvent}`]
     for (const [k, v] of Object.entries(fields)) {
+      if (k === PATH_FIELD_KEY) {
+        if (!isSafePathValue(v)) continue
+        parts.push(`${k}=${quotePathValue(v)}`)
+        continue
+      }
       if (!SAFE_FIELD_KEYS.has(k)) continue
       if (!isSafeValue(v)) continue
       parts.push(`${k}=${String(v)}`)

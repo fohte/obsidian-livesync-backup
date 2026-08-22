@@ -3,7 +3,7 @@ import { runBackup } from '#backup'
 import { loadConfig } from '#config'
 import { GitBackup } from '#git-backup'
 import { SafeLogger } from '#logger'
-import { LivesyncVaultFetcher } from '#vault-fetcher'
+import { LivesyncVaultFetcher, MissingChunkError } from '#vault-fetcher'
 
 const main = async (): Promise<number> => {
   const logger = new SafeLogger()
@@ -31,7 +31,14 @@ const main = async (): Promise<number> => {
     now: () => new Date(),
   })
   if (backupResult.isErr()) {
-    logger.error('backup_failed', { kind: classifyError(backupResult.error) })
+    const error = backupResult.error
+    const fields: Record<string, number | string> = {
+      kind: classifyError(error),
+    }
+    if (error.cause instanceof MissingChunkError) {
+      fields['path'] = error.cause.path
+    }
+    logger.error('backup_failed', fields)
     return 1
   }
   return 0
@@ -39,7 +46,8 @@ const main = async (): Promise<number> => {
 
 const classifyError = (err: unknown): string => {
   if (!(err instanceof Error)) return 'unknown'
-  const name = err.name
+  const name =
+    err.cause instanceof MissingChunkError ? err.cause.name : err.name
   if (/^[a-z][a-z0-9_]*$/i.test(name) && name.length <= 32) {
     return name.toLowerCase()
   }

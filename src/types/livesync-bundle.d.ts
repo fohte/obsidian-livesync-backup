@@ -29,5 +29,9 @@ declare module '*/vendor-dist/direct-file-manipulator.mjs' {
         }
     >
     close(): Promise<void>
+    // Stub that unconditionally throws "Method not implemented." in CLI
+    // usage (there is no replicator); see vault-fetcher.ts for why it gets
+    // overwritten right after construction.
+    $$getReplicator: () => unknown
   }
 }
