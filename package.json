@@ -44,6 +44,8 @@
     "vitest": "4.1.10"
   },
   "dependencies": {
+    "@fohte/service-kit": "0.1.11",
+    "@opentelemetry/api": "1.9.1",
     "minimatch": "10.2.5",
     "neverthrow": "8.2.0",
     "p-limit": "7.3.0",

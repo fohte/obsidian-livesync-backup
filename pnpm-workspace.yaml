@@ -1,6 +1,8 @@
 allowBuilds:
   # required by vitest's transformer
   esbuild: true
+  # required by @opentelemetry/sdk-node's bundled grpc exporters (@grpc/grpc-js -> @grpc/proto-loader)
+  protobufjs: true
   # required by @fohte/eslint-config -> eslint-plugin-import-x for module resolution
   unrs-resolver: true
 
