@@ -50,9 +50,6 @@ const isSafePathValue = (v: number | string): v is string =>
   v.length <= MAX_PATH_LENGTH &&
   !/[\x00-\x1f\x7f]/.test(v)
 
-const quotePathValue = (v: string): string =>
-  `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
-
 export class SafeLogger implements Logger {
   constructor(
     private readonly sink: LoggerSink = {
@@ -69,8 +66,12 @@ export class SafeLogger implements Logger {
     const parts: string[] = [`level=${level}`, `event=${safeEvent}`]
     for (const [k, v] of Object.entries(fields)) {
       if (k === PATH_FIELD_KEY) {
+        // Drop rather than truncate/escape: an oversized or control-char path
+        // isn't expected from a real vault file, and the failure itself is
+        // still visible via the `kind` field logged alongside it, just
+        // without a path in this edge case.
         if (!isSafePathValue(v)) continue
-        parts.push(`${k}=${quotePathValue(v)}`)
+        parts.push(`${k}=${JSON.stringify(v)}`)
         continue
       }
       if (!SAFE_FIELD_KEYS.has(k)) continue
