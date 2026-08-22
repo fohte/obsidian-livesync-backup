@@ -48,7 +48,7 @@ const isSafePathValue = (v: number | string): v is string =>
   typeof v === 'string' &&
   v.length > 0 &&
   v.length <= MAX_PATH_LENGTH &&
-  !/[\x00-\x1f\x7f]/.test(v)
+  !/[\x00-\x1f\x7f-\x9f\u2028\u2029]/.test(v)
 
 export class SafeLogger implements Logger {
   constructor(
@@ -66,10 +66,9 @@ export class SafeLogger implements Logger {
     const parts: string[] = [`level=${level}`, `event=${safeEvent}`]
     for (const [k, v] of Object.entries(fields)) {
       if (k === PATH_FIELD_KEY) {
-        // Drop rather than truncate/escape: an oversized or control-char path
-        // isn't expected from a real vault file, and the failure itself is
-        // still visible via the `kind` field logged alongside it, just
-        // without a path in this edge case.
+        // An oversized or control-char path isn't expected from a real vault
+        // file; the failure itself is still visible via the `kind` field
+        // logged alongside it, just without a path in this edge case.
         if (!isSafePathValue(v)) continue
         parts.push(`${k}=${JSON.stringify(v)}`)
         continue
