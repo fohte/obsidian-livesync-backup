@@ -145,18 +145,9 @@ describe('LivesyncVaultFetcher.fetchAll', () => {
     state.resolveReady?.()
 
     const caught: unknown = await done.catch((e: unknown) => e)
-    expect(caught).toBeInstanceOf(MissingChunkError)
-    if (!(caught instanceof MissingChunkError)) return
-    // A single toEqual(...) here would need an inline object literal, which
-    // this repo's `fohte/no-inline-object-in-expect` lint rule bans (same
-    // constraint that keeps src/errors.test.ts's BoundaryError test on
-    // separate toBe() calls per field) — split per field instead.
-    expect(caught.name).toBe('MissingChunkError')
-    expect(caught.message).toBe(
-      'missing chunk(s), cannot back up file: notes/inbox/broken.md',
+    expect(caught).toEqual(
+      new MissingChunkError('notes/inbox/broken.md', state.throwAfterEntries),
     )
-    expect(caught.path).toBe('notes/inbox/broken.md')
-    expect(caught.cause).toBe(state.throwAfterEntries)
   })
 
   it('propagates enumeration failures unrelated to missing chunks unchanged', async () => {
