@@ -126,6 +126,10 @@ describe('LivesyncVaultFetcher.fetchAll', () => {
     }
   })
 
+  // This checks the constructor patches the stub itself, not the downstream
+  // crash-avoidance effect: reproducing that would require mocking
+  // ChunkFetcher's internal setTimeout/EventTarget dispatch, which is out of
+  // scope for this file's third-party boundary.
   it('replaces the upstream $$getReplicator stub, which otherwise throws on every missing-chunk fetch attempt', () => {
     new LivesyncVaultFetcher(couchdbConfig())
     expect(state.lastInstance?.$$getReplicator()).toBeUndefined()
@@ -143,6 +147,10 @@ describe('LivesyncVaultFetcher.fetchAll', () => {
     const caught: unknown = await done.catch((e: unknown) => e)
     expect(caught).toBeInstanceOf(MissingChunkError)
     if (!(caught instanceof MissingChunkError)) return
+    // A single toEqual(...) here would need an inline object literal, which
+    // this repo's `fohte/no-inline-object-in-expect` lint rule bans (same
+    // constraint that keeps src/errors.test.ts's BoundaryError test on
+    // separate toBe() calls per field) — split per field instead.
     expect(caught.name).toBe('MissingChunkError')
     expect(caught.message).toBe(
       'missing chunk(s), cannot back up file: notes/inbox/broken.md',

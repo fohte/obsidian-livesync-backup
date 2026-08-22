@@ -33,7 +33,9 @@ export class VaultFetcherTimeoutError extends Error {
 }
 
 // DirectFileManipulatorV2's getByMeta() throws this exact message (with the
-// file path appended) once a document's chunks fail to arrive. There is no
+// file path appended) whenever it fails to fully load a document — most
+// commonly because a chunk never arrived, but also for other
+// DirectFileManipulatorV2/EntryManager read failures. There is no
 // structured field for the path, so it has to be parsed out of the message.
 const CORRUPTED_DOCUMENT_PREFIX = 'Corrupted document: '
 

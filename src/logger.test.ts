@@ -31,7 +31,7 @@ describe('SafeLogger', () => {
     expect(lines[0]).toBe('level=info event=fetch_done fetched=1')
   })
 
-  it('does not leak secrets or content via generic known keys', () => {
+  it('writes generic known keys whose values have a safe shape', () => {
     const { sink, lines } = collect()
     const logger = new SafeLogger(sink)
     logger.error('backup_failed', {
@@ -41,8 +41,11 @@ describe('SafeLogger', () => {
     expect(lines[0]).toBe(
       'level=error event=backup_failed kind=auth_failed step=git_push',
     )
+  })
 
-    lines.length = 0
+  it('does not leak secrets or content via generic known keys', () => {
+    const { sink, lines } = collect()
+    const logger = new SafeLogger(sink)
     logger.error('backup_failed', {
       kind: 'pat ghp_AAAAAAAAA',
       step: '/tmp/clone/notes/secret.md',
@@ -59,13 +62,16 @@ describe('SafeLogger', () => {
     )
   })
 
-  it('drops the path field when it contains control characters or exceeds the length limit', () => {
+  it('drops the path field when it contains control characters', () => {
     const { sink, lines } = collect()
     const logger = new SafeLogger(sink)
     logger.error('backup_failed', { path: 'notes/\n.md' })
     expect(lines[0]).toBe('level=error event=backup_failed')
+  })
 
-    lines.length = 0
+  it('drops the path field when it exceeds the length limit', () => {
+    const { sink, lines } = collect()
+    const logger = new SafeLogger(sink)
     logger.error('backup_failed', { path: 'a'.repeat(513) })
     expect(lines[0]).toBe('level=error event=backup_failed')
   })

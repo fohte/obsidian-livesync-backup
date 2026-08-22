@@ -32,11 +32,13 @@ const main = async (): Promise<number> => {
   })
   if (backupResult.isErr()) {
     const error = backupResult.error
+    const missingChunk =
+      error.cause instanceof MissingChunkError ? error.cause : undefined
     const fields: Record<string, number | string> = {
-      kind: classifyError(error),
+      kind: classifyError(error, missingChunk),
     }
-    if (error.cause instanceof MissingChunkError) {
-      fields['path'] = error.cause.path
+    if (missingChunk) {
+      fields['path'] = missingChunk.path
     }
     logger.error('backup_failed', fields)
     return 1
@@ -44,10 +46,12 @@ const main = async (): Promise<number> => {
   return 0
 }
 
-const classifyError = (err: unknown): string => {
+const classifyError = (
+  err: unknown,
+  missingChunk?: MissingChunkError,
+): string => {
   if (!(err instanceof Error)) return 'unknown'
-  const name =
-    err.cause instanceof MissingChunkError ? err.cause.name : err.name
+  const name = missingChunk?.name ?? err.name
   if (/^[a-z][a-z0-9_]*$/i.test(name) && name.length <= 32) {
     return name.toLowerCase()
   }
