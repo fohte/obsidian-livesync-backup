@@ -6,7 +6,7 @@ error_tracking: true
 is_public: true
 is_web_app: false
 project_name: obsidian-livesync-backup
-repo_id: ''
+repo_id: '1241203999'
 repo_language: en
 subpackages: []
 type: node
