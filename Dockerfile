@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.24
 
-FROM node:26.2.0-alpine AS builder
+FROM node:26.8.1-alpine AS builder
 WORKDIR /build
 
 # Node.js images do not bundle corepack, so install it explicitly.
@@ -21,7 +21,7 @@ RUN pnpm run build
 # Trim devDependencies for the runtime image
 RUN pnpm prune --prod
 
-FROM node:26.2.0-alpine AS runtime
+FROM node:26.8.1-alpine AS runtime
 WORKDIR /app
 
 # git is required by simple-git
