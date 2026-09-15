@@ -3,7 +3,7 @@ import { BoundaryError } from '#errors'
 
 import { DirectFileManipulator } from '../vendor-dist/direct-file-manipulator.mjs'
 
-export type VaultFileContent =
+type VaultFileContent =
   | { readonly kind: 'text'; readonly text: string }
   | { readonly kind: 'binary'; readonly bytes: Buffer }
 

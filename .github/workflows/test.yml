@@ -131,11 +131,9 @@ jobs:
       - name: Run tests
         run: pnpm run test
 
-<<<<<<< before updating
       - name: Build bundle and app
         run: pnpm run build
-||||||| last update
-=======
+
   # Fixed name for branch protection: knip has no `needs` of its own, so
   # this gate (skip == success) folds its result into unit-test.
   unit-test:
@@ -179,4 +177,3 @@ jobs:
 
       - name: Run knip
         run: pnpm exec knip
->>>>>>> after updating
