@@ -41,7 +41,7 @@
     "typescript": "6.0.3",
     "@ninoseki/eslint-plugin-neverthrow": "0.3.1",
     "vitest": "4.1.11",
-    "knip": "6.34.0"
+    "knip": "6.35.0"
   },
   "dependencies": {
     "@fohte/service-kit": "0.1.14",
