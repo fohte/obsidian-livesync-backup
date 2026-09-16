@@ -20,7 +20,7 @@
     "@fohte/eslint-config": "0.4.4",
     "@tsconfig/node-lts": "24.0.1",
     "@tsconfig/strictest": "2.0.8",
-    "@types/node": "24.13.3",
+    "@types/node": "24.13.4",
     "@types/pouchdb": "6.4.2",
     "concurrently": "10.0.5",
     "diff-match-patch": "1.0.5",
