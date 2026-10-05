@@ -1,10 +1,12 @@
 # Changes here will be overwritten by Copier
-_commit: v0.11.7
+_commit: v0.11.9
 _src_path: https://github.com/fohte/generic-boilerplate
+db: false
 description: '@fohte''s personal backup tool for Self-hosted LiveSync Obsidian vault'
 error_tracking: true
 is_public: true
 is_web_app: false
+pr_title_check: false
 project_name: obsidian-livesync-backup
 repo_id: '1241203999'
 repo_language: en
