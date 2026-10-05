@@ -1,6 +1,14 @@
 // Must run before any instrumented module is imported, otherwise
+<<<<<<< before updating
 // @opentelemetry/auto-instrumentations-node cannot patch them — hence
 // `import '#bootstrap'` as the very first statement of `src/main.ts`.
+||||||| last update
+// @opentelemetry/auto-instrumentations-node cannot patch them — hence
+// `import './bootstrap'` as the very first statement of `index.ts`.
+=======
+// @opentelemetry/auto-instrumentations-node cannot patch them — import
+// `#bootstrap` first from the Node entrypoint.
+>>>>>>> after updating
 import { initObservabilityIfConfigured } from '@fohte/service-kit/observability'
 import { Result } from 'neverthrow'
 
