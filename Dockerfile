@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.24
+# syntax=docker/dockerfile:1.27
 
 FROM node:26.8.2-alpine AS builder
 WORKDIR /build
