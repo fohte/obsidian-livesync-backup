@@ -232,4 +232,88 @@ describe('loadApplyChanges', () => {
       rmSync(checkoutPath, { recursive: true, force: true })
     }
   })
+
+  it('includes side-branch commits that do not descend from the from commit', async () => {
+    const checkoutPath = mkdtempSync(
+      join(tmpdir(), 'livesync-apply-old-branch-test-'),
+    )
+    const git = (...args: string[]): string =>
+      execFileSync('git', ['-C', checkoutPath, ...args], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }).trim()
+    const commit = (email: string, message: string): string => {
+      execFileSync(
+        'git',
+        [
+          '-C',
+          checkoutPath,
+          '-c',
+          'user.name=Fixture Author',
+          '-c',
+          `user.email=${email}`,
+          'commit',
+          '-m',
+          message,
+        ],
+        { stdio: ['ignore', 'pipe', 'pipe'] },
+      )
+      return git('rev-parse', 'HEAD')
+    }
+
+    try {
+      git('init', '-b', 'main')
+      mkdirSync(join(checkoutPath, 'src'))
+      writeFileSync(join(checkoutPath, 'src', 'base.md'), 'base')
+      git('add', 'src')
+      commit('author@example.invalid', 'base vault')
+
+      git('checkout', '-b', 'feature')
+      writeFileSync(join(checkoutPath, 'src', 'feature.md'), 'feature')
+      git('add', 'src/feature.md')
+      const featureCommit = commit('author@example.invalid', 'add feature note')
+
+      git('checkout', 'main')
+      writeFileSync(join(checkoutPath, 'src', 'main.md'), 'main')
+      git('add', 'src/main.md')
+      const from = commit('author@example.invalid', 'advance main')
+      execFileSync(
+        'git',
+        [
+          '-C',
+          checkoutPath,
+          '-c',
+          'user.name=Fixture Author',
+          '-c',
+          'user.email=author@example.invalid',
+          'merge',
+          '--no-ff',
+          'feature',
+          '-m',
+          'merge feature',
+        ],
+        { stdio: ['ignore', 'pipe', 'pipe'] },
+      )
+      const to = git('rev-parse', 'HEAD')
+
+      const result = await loadApplyChanges({
+        checkoutPath,
+        from,
+        to,
+        vaultDir: 'src',
+        excludedAuthorEmail: 'backup-bot@example.invalid',
+      })
+
+      expect(await summarizeChanges(result._unsafeUnwrap())).toEqual([
+        {
+          commit: featureCommit.slice(0, 12),
+          path: 'feature.md',
+          before: undefined,
+          after: 'feature',
+        },
+      ])
+    } finally {
+      rmSync(checkoutPath, { recursive: true, force: true })
+    }
+  })
 })

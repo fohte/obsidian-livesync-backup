@@ -173,7 +173,6 @@ export const loadApplyChanges = async (
       'rev-list',
       '--reverse',
       '--topo-order',
-      '--ancestry-path',
       '--no-merges',
       `${input.from}..${input.to}`,
     ],
