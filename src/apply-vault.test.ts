@@ -286,6 +286,30 @@ describe('LivesyncApplyStore', () => {
     })
   })
 
+  it('keeps a concurrent creation when it races with a new file write', async () => {
+    const store = new LivesyncApplyStore(couchdbConfig())
+    state.resolveReady?.()
+    state.advanceBeforeMetadataPut = true
+
+    const result = await store.put(
+      'notes/new.md',
+      Buffer.from('pushed'),
+      undefined,
+      123,
+    )
+
+    expect(snapshotWriteConflict(result._unsafeUnwrap())).toEqual({
+      result: false,
+      databaseRevision: 'raced-revision',
+      databasePut: {
+        id: 'notes/new.md',
+        revision: undefined,
+        force: false,
+      },
+      put: undefined,
+    })
+  })
+
   it('keeps a concurrent metadata update when it races with a deletion', async () => {
     const store = new LivesyncApplyStore(couchdbConfig())
     state.resolveReady?.()

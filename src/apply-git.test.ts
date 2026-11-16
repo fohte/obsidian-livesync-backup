@@ -32,34 +32,39 @@ const summarizeChanges = async (changes: readonly ApplyFileChange[]) =>
     })),
   )
 
+const createCheckout = (prefix: string) => {
+  const checkoutPath = mkdtempSync(join(tmpdir(), prefix))
+  const git = (...args: string[]): string =>
+    execFileSync('git', ['-C', checkoutPath, ...args], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim()
+  const commit = (email: string, message: string): string => {
+    execFileSync(
+      'git',
+      [
+        '-C',
+        checkoutPath,
+        '-c',
+        'user.name=Fixture Author',
+        '-c',
+        `user.email=${email}`,
+        'commit',
+        '-m',
+        message,
+      ],
+      { stdio: ['ignore', 'pipe', 'pipe'] },
+    )
+    return git('rev-parse', 'HEAD')
+  }
+  return { checkoutPath, git, commit }
+}
+
 describe('loadApplyChanges', () => {
   it('emits rename as delete and add while skipping the excluded author', async () => {
-    const checkoutPath = mkdtempSync(join(tmpdir(), 'livesync-apply-test-'))
+    const { checkoutPath, git, commit } = createCheckout('livesync-apply-test-')
     const previousDifferentOwner =
       process.env['GIT_TEST_ASSUME_DIFFERENT_OWNER']
-    const git = (...args: string[]): string =>
-      execFileSync('git', ['-C', checkoutPath, ...args], {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-      }).trim()
-    const commit = (email: string, message: string): string => {
-      execFileSync(
-        'git',
-        [
-          '-C',
-          checkoutPath,
-          '-c',
-          'user.name=Fixture Author',
-          '-c',
-          `user.email=${email}`,
-          'commit',
-          '-m',
-          message,
-        ],
-        { stdio: ['ignore', 'pipe', 'pipe'] },
-      )
-      return git('rev-parse', 'HEAD')
-    }
 
     try {
       git('init', '-b', 'main')
@@ -137,32 +142,9 @@ describe('loadApplyChanges', () => {
   })
 
   it('omits merge commits while keeping their non-bot side commits', async () => {
-    const checkoutPath = mkdtempSync(
-      join(tmpdir(), 'livesync-apply-merge-test-'),
+    const { checkoutPath, git, commit } = createCheckout(
+      'livesync-apply-merge-test-',
     )
-    const git = (...args: string[]): string =>
-      execFileSync('git', ['-C', checkoutPath, ...args], {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-      }).trim()
-    const commit = (email: string, message: string): string => {
-      execFileSync(
-        'git',
-        [
-          '-C',
-          checkoutPath,
-          '-c',
-          'user.name=Fixture Author',
-          '-c',
-          `user.email=${email}`,
-          'commit',
-          '-m',
-          message,
-        ],
-        { stdio: ['ignore', 'pipe', 'pipe'] },
-      )
-      return git('rev-parse', 'HEAD')
-    }
 
     try {
       git('init', '-b', 'main')
@@ -234,32 +216,9 @@ describe('loadApplyChanges', () => {
   })
 
   it('includes side-branch commits that do not descend from the from commit', async () => {
-    const checkoutPath = mkdtempSync(
-      join(tmpdir(), 'livesync-apply-old-branch-test-'),
+    const { checkoutPath, git, commit } = createCheckout(
+      'livesync-apply-old-branch-test-',
     )
-    const git = (...args: string[]): string =>
-      execFileSync('git', ['-C', checkoutPath, ...args], {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-      }).trim()
-    const commit = (email: string, message: string): string => {
-      execFileSync(
-        'git',
-        [
-          '-C',
-          checkoutPath,
-          '-c',
-          'user.name=Fixture Author',
-          '-c',
-          `user.email=${email}`,
-          'commit',
-          '-m',
-          message,
-        ],
-        { stdio: ['ignore', 'pipe', 'pipe'] },
-      )
-      return git('rev-parse', 'HEAD')
-    }
 
     try {
       git('init', '-b', 'main')
