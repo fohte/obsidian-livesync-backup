@@ -2,6 +2,7 @@
 import { observability } from '#bootstrap'
 
 import { exchangeOctoStsToken } from '#auth/octo-sts'
+import { runApply } from '#apply-command'
 import { runBackup } from '#backup'
 import { loadConfig } from '#config'
 import { GitBackup } from '#git-backup'
@@ -61,6 +62,8 @@ const classifyError = (
   return 'error'
 }
 
-const exitCode = await main()
+const args = process.argv.slice(2)
+const exitCode =
+  args[0] === 'apply' ? await runApply(args.slice(1)) : await main()
 await observability?.shutdown()
 process.exit(exitCode)

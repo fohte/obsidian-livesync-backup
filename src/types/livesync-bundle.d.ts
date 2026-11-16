@@ -4,9 +4,50 @@
 // submodule under `vendor/livesync-bridge`).
 declare module '*/vendor-dist/direct-file-manipulator.mjs' {
   export class DirectFileManipulator {
+    readonly liveSyncLocalDB: {
+      readonly localDatabase: {
+        put(
+          doc: { _id: string; _rev?: string },
+          options?: { force?: boolean },
+        ): Promise<unknown>
+      }
+      deleteDBEntry(path: string, options?: { rev?: string }): Promise<boolean>
+    }
     // Resolves once the underlying PouchDB instance has connected; methods
     // like enumerateAllNormalDocs() throw if called before this resolves.
     readonly ready: { promise: Promise<void> }
+    path2id(path: string): Promise<string>
+    get(
+      path: string,
+      metaOnly?: boolean,
+    ): Promise<
+      | false
+      | {
+          data: string[]
+          type?: string
+          deleted?: boolean
+        }
+    >
+    getById(
+      id: string,
+      metaOnly?: boolean,
+    ): Promise<
+      | false
+      | {
+          _rev?: string
+          data: string[]
+          type?: string
+          deleted?: boolean
+        }
+    >
+    rawGet<T>(id: string): Promise<false | T>
+    put(
+      path: string,
+      data: Blob,
+      info: { ctime: number; mtime: number; size: number },
+      type?: 'newnote' | 'plain',
+    ): Promise<boolean>
+    delete(path: string): Promise<boolean>
     constructor(options: {
       url: string
       username: string

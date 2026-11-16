@@ -26,6 +26,10 @@ const SAFE_FIELD_KEYS = new Set([
   'step',
   'committed',
   'snapshot_at',
+  'applied',
+  'skipped',
+  'conflicts',
+  'commit',
 ])
 
 const isSafeValue = (v: number | string): boolean => {

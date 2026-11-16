@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { ConfigError, loadConfig } from '#config'
+import { ConfigError, loadApplyConfig, loadConfig } from '#config'
 
 const fullEnv = (): Record<string, string> => ({
   COUCHDB_URL: 'http://couchdb.local:5984',
@@ -82,5 +82,36 @@ describe('loadConfig', () => {
     const env = fullEnv()
     env['COUCHDB_PASSWORD'] = ''
     expect(loadConfig(env)._unsafeUnwrapErr()).toBeInstanceOf(ConfigError)
+  })
+})
+
+describe('loadApplyConfig', () => {
+  it('loads CouchDB and exclusion settings without backup-only credentials', () => {
+    const env = fullEnv()
+    delete env['GIT_REPOSITORY']
+    delete env['GIT_BRANCH']
+    delete env['GIT_VAULT_SUBDIR']
+    delete env['OCTO_STS_URL']
+    delete env['OCTO_STS_SCOPE']
+    delete env['OCTO_STS_IDENTITY']
+    delete env['OCTO_STS_SA_TOKEN_PATH']
+
+    expect(loadApplyConfig(env)._unsafeUnwrap()).toEqual({
+      couchdb: {
+        url: 'http://couchdb.local:5984',
+        username: 'obsidian-livesync-backup',
+        password: 'pw',
+        database: 'obsidian-v2',
+        passphrase: 'phrase',
+        obfuscatePassphrase: 'phrase',
+        enableChunkSplitterV2: true,
+        enableCompression: false,
+        handleFilenameCaseSensitive: false,
+      },
+      exclude: {
+        paths: ['foo/**', 'bar/baz'],
+        secretPatterns: ['sk-[A-Za-z0-9]+'],
+      },
+    })
   })
 })

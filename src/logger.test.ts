@@ -20,6 +20,21 @@ describe('SafeLogger', () => {
     ])
   })
 
+  it('logs apply conflicts with their path and commit and reports the result counts', () => {
+    const { sink, lines } = collect()
+    const logger = new SafeLogger(sink)
+    logger.warn('apply_conflict', {
+      path: 'notes/example.md',
+      commit: '0123456789ab',
+    })
+    logger.info('apply_done', { applied: 1, skipped: 2, conflicts: 1 })
+
+    expect(lines).toEqual([
+      'level=warn event=apply_conflict path="notes/example.md" commit=0123456789ab',
+      'level=info event=apply_done applied=1 skipped=2 conflicts=1',
+    ])
+  })
+
   it('drops unknown field names', () => {
     const { sink, lines } = collect()
     const logger = new SafeLogger(sink)
