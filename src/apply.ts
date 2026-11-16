@@ -40,7 +40,7 @@ export interface ApplyStore {
   delete(path: string): Promise<Result<void, ApplyError>>
 }
 
-export interface ApplyConflict {
+interface ApplyConflict {
   readonly commit: string
   readonly path: string
 }
