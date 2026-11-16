@@ -1,6 +1,6 @@
 import { isUtf8 } from 'node:buffer'
 
-import { type Result, ResultAsync } from 'neverthrow'
+import { err, ok, type Result, ResultAsync } from 'neverthrow'
 
 import { ApplyError, type ApplyStore, type VaultState } from '#apply'
 import type { BackupConfig } from '#config'
@@ -12,9 +12,26 @@ interface RawEntry {
   readonly _rev?: string
 }
 
+class LivesyncReadError extends ApplyError {
+  override readonly name = 'LivesyncReadError'
+
+  constructor(
+    readonly originalCause: unknown,
+    path: string,
+  ) {
+    super('failed to read a LiveSync file', { path, operation: 'read' })
+  }
+}
+
 const isPlainTextContent = (content: Buffer): boolean =>
   // The backup reader only scans UTF-8 text entries for configured secrets.
   !content.includes(0) && isUtf8(content)
+
+const isMissingDocumentError = (cause: unknown): boolean =>
+  typeof cause === 'object' &&
+  cause !== null &&
+  'status' in cause &&
+  cause.status === 404
 
 export class LivesyncApplyStore implements ApplyStore {
   private readonly dfm: ReturnType<typeof createLivesyncClient>
@@ -24,8 +41,8 @@ export class LivesyncApplyStore implements ApplyStore {
   }
 
   async read(path: string): Promise<Result<VaultState, ApplyError>> {
-    const state = await ResultAsync.fromPromise(
-      (async (): Promise<VaultState> => {
+    const idResult = await ResultAsync.fromPromise(
+      (async (): Promise<string> => {
         await waitForLivesyncReady(
           this.dfm.ready.promise,
           READY_TIMEOUT_MS,
@@ -35,19 +52,7 @@ export class LivesyncApplyStore implements ApplyStore {
               { path, operation: 'connect' },
             ),
         )
-        const id = await this.dfm.path2id(path)
-        const entry = await this.dfm.getById(id)
-        const content =
-          entry === false || entry.deleted === true
-            ? undefined
-            : Buffer.from(
-                entry.data.join(''),
-                entry.type === 'newnote' ? 'base64' : 'utf8',
-              )
-        return {
-          content,
-          rev: entry === false ? undefined : entry._rev,
-        }
+        return this.dfm.path2id(path)
       })(),
       () =>
         new ApplyError('failed to read a LiveSync file', {
@@ -55,7 +60,30 @@ export class LivesyncApplyStore implements ApplyStore {
           operation: 'read',
         }),
     )
-    return state
+    if (idResult.isErr()) return err(idResult.error)
+
+    const entryResult = await ResultAsync.fromPromise(
+      this.dfm.getById(idResult.value),
+      (cause: unknown) => new LivesyncReadError(cause, path),
+    )
+    if (entryResult.isErr()) {
+      if (isMissingDocumentError(entryResult.error.originalCause)) {
+        return ok({ content: undefined, rev: undefined })
+      }
+      return err(entryResult.error)
+    }
+
+    const entry = entryResult.value
+    return ok({
+      content:
+        entry === false || entry.deleted === true
+          ? undefined
+          : Buffer.from(
+              entry.data.join(''),
+              entry.type === 'newnote' ? 'base64' : 'utf8',
+            ),
+      rev: entry === false ? undefined : entry._rev,
+    })
   }
 
   async readRevision(

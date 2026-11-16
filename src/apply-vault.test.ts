@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { ApplyStore } from '#apply'
+
 interface FakeEntry {
   readonly data: string[]
   readonly type: string
@@ -9,6 +11,7 @@ interface FakeEntry {
 interface TestState {
   resolveReady: (() => void) | undefined
   entry: false | FakeEntry
+  getByIdError: (Error & { readonly status: number }) | undefined
   rawEntry: false
   put:
     | {
@@ -23,6 +26,7 @@ interface TestState {
 const state = vi.hoisted<TestState>(() => ({
   resolveReady: undefined,
   entry: false,
+  getByIdError: undefined,
   rawEntry: false,
   put: undefined,
 }))
@@ -46,8 +50,11 @@ vi.mock('../vendor-dist/direct-file-manipulator.mjs', () => {
       return path
     }
 
-    async getById() {
-      return state.entry
+    getById() {
+      if (state.getByIdError !== undefined) {
+        return Promise.reject(state.getByIdError)
+      }
+      return Promise.resolve(state.entry)
     }
 
     async rawGet() {
@@ -92,9 +99,15 @@ const snapshotPut = () => ({
   put: state.put,
 })
 
+const snapshotMissingDocument = async (store: ApplyStore) => ({
+  state: (await store.read('notes/new.md'))._unsafeUnwrap(),
+  revision: (await store.readRevision('notes/new.md'))._unsafeUnwrap(),
+})
+
 beforeEach(() => {
   state.resolveReady = undefined
   state.entry = false
+  state.getByIdError = undefined
   state.rawEntry = false
   state.put = undefined
 })
@@ -114,6 +127,19 @@ describe('LivesyncApplyStore', () => {
     expect(result._unsafeUnwrap()).toEqual({
       content: Buffer.from([0, 255, 16]),
       rev: '3-test-revision',
+    })
+  })
+
+  it('treats a CouchDB 404 as a missing vault document', async () => {
+    state.getByIdError = Object.assign(new Error('missing document'), {
+      status: 404,
+    })
+    const store = new LivesyncApplyStore(couchdbConfig())
+    state.resolveReady?.()
+
+    expect(await snapshotMissingDocument(store)).toEqual({
+      state: { content: undefined, rev: undefined },
+      revision: undefined,
     })
   })
 

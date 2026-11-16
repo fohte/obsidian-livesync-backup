@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { posix } from 'node:path'
+import { posix, resolve } from 'node:path'
 import { promisify } from 'node:util'
 
 import { err, ok, type Result, ResultAsync } from 'neverthrow'
@@ -27,12 +27,20 @@ const runGit = async (
   args: readonly string[],
   operation: string,
   encoding: 'utf8' | 'buffer' = 'utf8',
-): Promise<Result<string | Buffer, ApplyError>> =>
-  ResultAsync.fromPromise(
-    execFileAsync('git', ['-C', checkoutPath, ...args], {
-      encoding,
-      maxBuffer: MAX_GIT_OUTPUT,
-    }).then((result) => result.stdout),
+): Promise<Result<string | Buffer, ApplyError>> => {
+  const absoluteCheckoutPath = resolve(checkoutPath)
+  return ResultAsync.fromPromise(
+    execFileAsync(
+      'git',
+      [
+        '-c',
+        `safe.directory=${absoluteCheckoutPath}`,
+        '-C',
+        absoluteCheckoutPath,
+        ...args,
+      ],
+      { encoding, maxBuffer: MAX_GIT_OUTPUT },
+    ).then((result) => result.stdout),
     (cause) =>
       new GitCommandError(
         operation,
@@ -45,6 +53,7 @@ const runGit = async (
         cause,
       ),
   )
+}
 
 const text = (
   result: Result<string | Buffer, ApplyError>,
@@ -165,6 +174,7 @@ export const loadApplyChanges = async (
       '--reverse',
       '--topo-order',
       '--ancestry-path',
+      '--no-merges',
       `${input.from}..${input.to}`,
     ],
     'list_commits',
