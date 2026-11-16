@@ -1,10 +1,10 @@
+import { isUtf8 } from 'node:buffer'
+
 import { type Result, ResultAsync } from 'neverthrow'
 
 import { ApplyError, type ApplyStore, type VaultState } from '#apply'
 import type { BackupConfig } from '#config'
-
-// eslint-disable-next-line no-restricted-imports -- the generated vendor bundle is external to the app build
-import { DirectFileManipulator } from '../vendor-dist/direct-file-manipulator.mjs'
+import { createLivesyncClient, waitForLivesyncReady } from '#livesync-client'
 
 const READY_TIMEOUT_MS = 30_000
 
@@ -12,60 +12,30 @@ interface RawEntry {
   readonly _rev?: string
 }
 
-const waitReady = (ready: Promise<void>): Promise<void> =>
-  new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new Error(`timed out after ${READY_TIMEOUT_MS.toString()}ms`))
-    }, READY_TIMEOUT_MS)
-    ready.then(
-      () => {
-        clearTimeout(timer)
-        resolve()
-      },
-      (cause: unknown) => {
-        clearTimeout(timer)
-        reject(cause instanceof Error ? cause : new Error(String(cause)))
-      },
-    )
-  })
-
-const isPlainTextPath = (path: string): boolean =>
-  [
-    '.md',
-    '.txt',
-    '.svg',
-    '.html',
-    '.csv',
-    '.css',
-    '.js',
-    '.xml',
-    '.canvas',
-  ].some((extension) => path.endsWith(extension))
+const isPlainTextContent = (content: Buffer): boolean =>
+  // The backup reader only scans UTF-8 text entries for configured secrets.
+  !content.includes(0) && isUtf8(content)
 
 export class LivesyncApplyStore implements ApplyStore {
-  private readonly dfm: DirectFileManipulator
+  private readonly dfm: ReturnType<typeof createLivesyncClient>
 
   constructor(config: BackupConfig['couchdb']) {
-    this.dfm = new DirectFileManipulator({
-      url: config.url,
-      username: config.username,
-      password: config.password,
-      database: config.database,
-      passphrase: config.passphrase,
-      obfuscatePassphrase: config.obfuscatePassphrase,
-      enableChunkSplitterV2: config.enableChunkSplitterV2,
-      enableCompression: config.enableCompression,
-      handleFilenameCaseSensitive: config.handleFilenameCaseSensitive,
-    })
-    this.dfm.$$getReplicator = () => undefined
+    this.dfm = createLivesyncClient(config)
   }
 
   async read(path: string): Promise<Result<VaultState, ApplyError>> {
     const state = await ResultAsync.fromPromise(
       (async (): Promise<VaultState> => {
-        await waitReady(this.dfm.ready.promise)
+        await waitForLivesyncReady(
+          this.dfm.ready.promise,
+          READY_TIMEOUT_MS,
+          (timeoutMs) =>
+            new ApplyError(
+              `timed out after ${timeoutMs.toString()}ms waiting for CouchDB`,
+              { path, operation: 'connect' },
+            ),
+        )
         const id = await this.dfm.path2id(path)
-        // Get content and revision from the same database entry for a coherent baseline.
         const entry = await this.dfm.getById(id)
         const content =
           entry === false || entry.deleted === true
@@ -79,7 +49,11 @@ export class LivesyncApplyStore implements ApplyStore {
           rev: entry === false ? undefined : entry._rev,
         }
       })(),
-      () => new ApplyError('failed to read a LiveSync file'),
+      () =>
+        new ApplyError('failed to read a LiveSync file', {
+          path,
+          operation: 'read',
+        }),
     )
     return state
   }
@@ -89,12 +63,24 @@ export class LivesyncApplyStore implements ApplyStore {
   ): Promise<Result<string | undefined, ApplyError>> {
     const result = await ResultAsync.fromPromise(
       (async (): Promise<string | undefined> => {
-        await waitReady(this.dfm.ready.promise)
+        await waitForLivesyncReady(
+          this.dfm.ready.promise,
+          READY_TIMEOUT_MS,
+          (timeoutMs) =>
+            new ApplyError(
+              `timed out after ${timeoutMs.toString()}ms waiting for CouchDB`,
+              { path, operation: 'connect' },
+            ),
+        )
         const id = await this.dfm.path2id(path)
         const raw = await this.dfm.rawGet<RawEntry>(id)
         return raw === false ? undefined : raw._rev
       })(),
-      () => new ApplyError('failed to read a LiveSync revision'),
+      () =>
+        new ApplyError('failed to read a LiveSync revision', {
+          path,
+          operation: 'revision_check',
+        }),
     )
     return result
   }
@@ -102,11 +88,18 @@ export class LivesyncApplyStore implements ApplyStore {
   async put(path: string, content: Buffer): Promise<Result<void, ApplyError>> {
     const result = await ResultAsync.fromPromise(
       (async (): Promise<void> => {
-        await waitReady(this.dfm.ready.promise)
+        await waitForLivesyncReady(
+          this.dfm.ready.promise,
+          READY_TIMEOUT_MS,
+          (timeoutMs) =>
+            new ApplyError(
+              `timed out after ${timeoutMs.toString()}ms waiting for CouchDB`,
+              { path, operation: 'connect' },
+            ),
+        )
+        const plainText = isPlainTextContent(content)
         const blob = new Blob([new Uint8Array(content)], {
-          type: isPlainTextPath(path)
-            ? 'text/plain'
-            : 'application/octet-stream',
+          type: plainText ? 'text/plain' : 'application/octet-stream',
         })
         const saved = await this.dfm.put(
           path,
@@ -116,7 +109,7 @@ export class LivesyncApplyStore implements ApplyStore {
             mtime: Date.now(),
             size: content.byteLength,
           },
-          isPlainTextPath(path) ? 'plain' : 'newnote',
+          plainText ? 'plain' : 'newnote',
         )
         if (!saved) {
           return Promise.reject(
@@ -124,7 +117,11 @@ export class LivesyncApplyStore implements ApplyStore {
           )
         }
       })(),
-      () => new ApplyError('failed to write a LiveSync file'),
+      () =>
+        new ApplyError('failed to write a LiveSync file', {
+          path,
+          operation: 'write',
+        }),
     )
     return result
   }
@@ -132,7 +129,15 @@ export class LivesyncApplyStore implements ApplyStore {
   async delete(path: string): Promise<Result<void, ApplyError>> {
     const result = await ResultAsync.fromPromise(
       (async (): Promise<void> => {
-        await waitReady(this.dfm.ready.promise)
+        await waitForLivesyncReady(
+          this.dfm.ready.promise,
+          READY_TIMEOUT_MS,
+          (timeoutMs) =>
+            new ApplyError(
+              `timed out after ${timeoutMs.toString()}ms waiting for CouchDB`,
+              { path, operation: 'connect' },
+            ),
+        )
         const deleted = await this.dfm.delete(path)
         if (!deleted) {
           return Promise.reject(
@@ -140,7 +145,11 @@ export class LivesyncApplyStore implements ApplyStore {
           )
         }
       })(),
-      () => new ApplyError('failed to delete a LiveSync file'),
+      () =>
+        new ApplyError('failed to delete a LiveSync file', {
+          path,
+          operation: 'delete',
+        }),
     )
     return result
   }
@@ -148,7 +157,10 @@ export class LivesyncApplyStore implements ApplyStore {
   async close(): Promise<Result<void, ApplyError>> {
     const result = await ResultAsync.fromPromise(
       this.dfm.close(),
-      () => new ApplyError('failed to close the LiveSync connection'),
+      () =>
+        new ApplyError('failed to close the LiveSync connection', {
+          operation: 'close',
+        }),
     )
     return result
   }

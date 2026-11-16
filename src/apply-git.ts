@@ -4,7 +4,7 @@ import { promisify } from 'node:util'
 
 import { err, ok, type Result, ResultAsync } from 'neverthrow'
 
-import { ApplyError, type ApplyFileChange } from '#apply'
+import { type ApplyBlob, ApplyError, type ApplyFileChange } from '#apply'
 
 const execFileAsync = promisify(execFile)
 const MAX_GIT_OUTPUT = 64 * 1024 * 1024
@@ -17,7 +17,7 @@ class GitCommandError extends ApplyError {
     readonly exitCode: number | undefined,
     cause: unknown,
   ) {
-    super(`git operation failed: ${operation}`)
+    super(`git operation failed: ${operation}`, { operation })
     this.cause = cause
   }
 }
@@ -72,29 +72,58 @@ export interface LoadChangesInput {
   readonly excludedAuthorEmail: string
 }
 
-const readBlob = async (
+const readBlobReference = async (
   checkoutPath: string,
   tree: string,
   path: string,
-): Promise<Result<Buffer, ApplyError>> => {
+  objectFormat: ApplyBlob['objectFormat'],
+): Promise<Result<ApplyBlob, ApplyError>> => {
   const output = await runGit(
     checkoutPath,
-    ['cat-file', 'blob', `${tree}:${path}`],
-    'read_blob',
-    'buffer',
+    ['rev-parse', '--verify', '--end-of-options', `${tree}:${path}`],
+    'resolve_blob',
   )
-  return bytes(output)
+  const oidText = text(output)
+  if (oidText.isErr()) return err(oidText.error)
+  const objectId = oidText.value.trim()
+  const expectedLength = objectFormat === 'sha1' ? 40 : 64
+  if (!new RegExp(`^[0-9a-f]{${expectedLength.toString()}}$`).test(objectId)) {
+    return err(new ApplyError('git returned an invalid blob object id'))
+  }
+
+  return ok({
+    objectId,
+    objectFormat,
+    read: async () => {
+      const content = bytes(
+        await runGit(
+          checkoutPath,
+          ['cat-file', 'blob', objectId],
+          'read_blob',
+          'buffer',
+        ),
+      )
+      return content.mapErr(
+        (cause) =>
+          new ApplyError(cause.message, {
+            path,
+            operation: 'read_git_blob',
+          }),
+      )
+    },
+  })
 }
 
 export const loadApplyChanges = async (
   input: LoadChangesInput,
 ): Promise<Result<readonly ApplyFileChange[], ApplyError>> => {
-  const vaultDir = posix
+  const normalizedVaultDir = posix
     .normalize(input.vaultDir)
     .replace(/^\.\//, '')
     .replace(/\/$/, '')
+  const vaultDir = normalizedVaultDir === '.' ? '' : normalizedVaultDir
   if (
-    vaultDir.length === 0 ||
+    input.vaultDir.trim().length === 0 ||
     vaultDir.startsWith('/') ||
     vaultDir === '..' ||
     vaultDir.startsWith('../')
@@ -117,6 +146,18 @@ export const loadApplyChanges = async (
     return err(ancestor.error)
   }
 
+  const objectFormatOutput = await runGit(
+    input.checkoutPath,
+    ['rev-parse', '--show-object-format'],
+    'read_object_format',
+  )
+  const objectFormatText = text(objectFormatOutput)
+  if (objectFormatText.isErr()) return err(objectFormatText.error)
+  const objectFormat = objectFormatText.value.trim()
+  if (objectFormat !== 'sha1' && objectFormat !== 'sha256') {
+    return err(new ApplyError('unsupported git object format'))
+  }
+
   const commitsOutput = await runGit(
     input.checkoutPath,
     [
@@ -133,6 +174,8 @@ export const loadApplyChanges = async (
 
   const changes: ApplyFileChange[] = []
   const commits = commitsText.value.split(/\r?\n/).filter(Boolean)
+  const pathspec = vaultDir.length === 0 ? '.' : vaultDir
+  const pathPrefix = vaultDir.length === 0 ? '' : `${vaultDir}/`
   for (const commit of commits) {
     const authorOutput = await runGit(
       input.checkoutPath,
@@ -163,7 +206,7 @@ export const loadApplyChanges = async (
         parent,
         commit,
         '--',
-        vaultDir,
+        pathspec,
       ],
       'list_changed_files',
     )
@@ -179,27 +222,38 @@ export const loadApplyChanges = async (
       }
       index += 2
 
-      const prefix = `${vaultDir}/`
-      if (!repositoryPath.startsWith(prefix)) continue
-      const path = repositoryPath.slice(prefix.length)
+      if (!repositoryPath.startsWith(pathPrefix)) continue
+      const path = repositoryPath.slice(pathPrefix.length)
       if (path.length === 0) continue
 
-      const before =
-        status === 'A'
-          ? undefined
-          : await readBlob(input.checkoutPath, parent, repositoryPath)
-      if (before !== undefined && before.isErr()) return err(before.error)
-      const after =
-        status === 'D'
-          ? undefined
-          : await readBlob(input.checkoutPath, commit, repositoryPath)
-      if (after !== undefined && after.isErr()) return err(after.error)
+      let before: ApplyBlob | undefined
+      if (status !== 'A') {
+        const result = await readBlobReference(
+          input.checkoutPath,
+          parent,
+          repositoryPath,
+          objectFormat,
+        )
+        if (result.isErr()) return err(result.error)
+        before = result.value
+      }
+      let after: ApplyBlob | undefined
+      if (status !== 'D') {
+        const result = await readBlobReference(
+          input.checkoutPath,
+          commit,
+          repositoryPath,
+          objectFormat,
+        )
+        if (result.isErr()) return err(result.error)
+        after = result.value
+      }
 
       changes.push({
         commit: commit.slice(0, 12),
         path,
-        before: before === undefined ? undefined : before.value,
-        after: after === undefined ? undefined : after.value,
+        before,
+        after,
       })
     }
   }

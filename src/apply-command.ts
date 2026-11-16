@@ -93,7 +93,15 @@ export const runApply = async (args: readonly string[]): Promise<number> => {
     excludedAuthorEmail: argsResult.value.excludedAuthorEmail,
   })
   if (changesResult.isErr()) {
-    logger.error('apply_git_failed', { kind: 'git' })
+    logger.error('apply_git_failed', {
+      kind: 'git',
+      ...(changesResult.error.context?.path === undefined
+        ? {}
+        : { path: changesResult.error.context.path }),
+      ...(changesResult.error.context?.operation === undefined
+        ? {}
+        : { step: changesResult.error.context.operation }),
+    })
     return 2
   }
 
@@ -121,7 +129,20 @@ export const runApply = async (args: readonly string[]): Promise<number> => {
   )
   const closeResult = await store.close()
   if (outcomeResult.isErr() || closeResult.isErr()) {
-    logger.error('apply_failed', { kind: 'connection' })
+    const failure = outcomeResult.isErr()
+      ? outcomeResult.error
+      : closeResult.isErr()
+        ? closeResult.error
+        : undefined
+    logger.error('apply_failed', {
+      kind: 'connection',
+      ...(failure?.context?.path === undefined
+        ? {}
+        : { path: failure.context.path }),
+      ...(failure?.context?.operation === undefined
+        ? {}
+        : { step: failure.context.operation }),
+    })
     return 2
   }
 

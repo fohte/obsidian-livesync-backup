@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import { ok } from 'neverthrow'
 import { describe, expect, it } from 'vitest'
 
@@ -62,6 +64,15 @@ const snapshotCurrent = (result: ApplyOutcome, store: MemoryStore) => ({
 const snapshotBytes = (result: ApplyOutcome, store: MemoryStore) => ({
   result,
   bytes: [...(store.files.get('image.png')?.content ?? [])],
+})
+
+const gitBlob = (content: Buffer) => ({
+  objectId: createHash('sha1')
+    .update(`blob ${content.byteLength.toString()}\0`)
+    .update(content)
+    .digest('hex'),
+  objectFormat: 'sha1' as const,
+  read: () => Promise.resolve(ok(content)),
 })
 
 describe('applyChanges', () => {
@@ -175,6 +186,41 @@ describe('applyChanges', () => {
     })
   })
 
+  it('skips earlier edits when the vault already has a later pushed state', async () => {
+    const store = new MemoryStore()
+    store.files.set('note.md', {
+      content: Buffer.from('final'),
+      rev: 'final-rev',
+    })
+
+    const result = await applyChanges(
+      [
+        {
+          commit: 'abc123',
+          path: 'note.md',
+          before: Buffer.from('initial'),
+          after: Buffer.from('middle'),
+        },
+        {
+          commit: 'def456',
+          path: 'note.md',
+          before: Buffer.from('middle'),
+          after: Buffer.from('final'),
+        },
+      ],
+      store,
+      () => false,
+    )
+
+    expect(snapshot(result._unsafeUnwrap(), store)).toEqual({
+      result: { applied: 0, skipped: 2, conflicts: [] },
+      writes: [],
+      files: {
+        'note.md': { content: 'final', rev: 'final-rev' },
+      },
+    })
+  })
+
   it('compares binary content byte-for-byte', async () => {
     const store = new MemoryStore()
     store.files.set('image.png', {
@@ -189,6 +235,31 @@ describe('applyChanges', () => {
           path: 'image.png',
           before: Buffer.from([0, 255, 16]),
           after: Buffer.from([0, 255, 17]),
+        },
+      ],
+      store,
+      () => false,
+    )
+
+    expect(snapshotBytes(result._unsafeUnwrap(), store)).toEqual({
+      result: { applied: 1, skipped: 0, conflicts: [] },
+      bytes: [0, 255, 17],
+    })
+  })
+
+  it('loads Git blobs only when byte comparisons or writes need them', async () => {
+    const store = new MemoryStore()
+    const before = Buffer.from([0, 255, 16])
+    const after = Buffer.from([0, 255, 17])
+    store.files.set('image.png', { content: before, rev: 'old-rev' })
+
+    const result = await applyChanges(
+      [
+        {
+          commit: 'abc123',
+          path: 'image.png',
+          before: gitBlob(before),
+          after: gitBlob(after),
         },
       ],
       store,

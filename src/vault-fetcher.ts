@@ -1,7 +1,6 @@
 import type { BackupConfig } from '#config'
 import { BoundaryError } from '#errors'
-
-import { DirectFileManipulator } from '../vendor-dist/direct-file-manipulator.mjs'
+import { createLivesyncClient, waitForLivesyncReady } from '#livesync-client'
 
 type VaultFileContent =
   | { readonly kind: 'text'; readonly text: string }
@@ -51,57 +50,24 @@ export class MissingChunkError extends BoundaryError {
   }
 }
 
-const waitReady = (ready: Promise<void>, timeoutMs: number): Promise<void> =>
-  new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(
-        new VaultFetcherTimeoutError(
-          `timed out after ${timeoutMs.toString()}ms waiting for the CouchDB connection to become ready`,
-        ),
-      )
-    }, timeoutMs)
-    ready.then(
-      () => {
-        clearTimeout(timer)
-        resolve()
-      },
-      (err: unknown) => {
-        clearTimeout(timer)
-        reject(err instanceof Error ? err : new Error(String(err)))
-      },
-    )
-  })
-
 export class LivesyncVaultFetcher implements VaultFetcher {
-  private readonly dfm: DirectFileManipulator
+  private readonly dfm: ReturnType<typeof createLivesyncClient>
 
   constructor(config: BackupConfig['couchdb']) {
-    this.dfm = new DirectFileManipulator({
-      url: config.url,
-      username: config.username,
-      password: config.password,
-      database: config.database,
-      passphrase: config.passphrase,
-      obfuscatePassphrase: config.obfuscatePassphrase,
-      enableChunkSplitterV2: config.enableChunkSplitterV2,
-      enableCompression: config.enableCompression,
-      handleFilenameCaseSensitive: config.handleFilenameCaseSensitive,
-    })
-    // $$getReplicator is a stub that unconditionally throws "Method not
-    // implemented." (there is no replicator in CLI usage). ChunkFetcher
-    // calls it from a detached `setTimeout` callback whenever a chunk is
-    // missing, so the throw becomes an unhandled rejection that crashes the
-    // process before the missing-chunk wait even times out. It's a plain
-    // public instance field, not something the constructor options can
-    // override, so it's replaced here to take ChunkFetcher's "no active
-    // replicator" branch instead, which just skips the remote fetch.
-    this.dfm.$$getReplicator = () => undefined
+    this.dfm = createLivesyncClient(config)
   }
 
   async *fetchAll(): AsyncIterable<VaultFile> {
     // DirectFileManipulator connects to CouchDB asynchronously in its
     // constructor; enumerateAllNormalDocs() throws if called beforehand.
-    await waitReady(this.dfm.ready.promise, READY_TIMEOUT_MS)
+    await waitForLivesyncReady(
+      this.dfm.ready.promise,
+      READY_TIMEOUT_MS,
+      (timeoutMs) =>
+        new VaultFetcherTimeoutError(
+          `timed out after ${timeoutMs.toString()}ms waiting for the CouchDB connection to become ready`,
+        ),
+    )
     // eslint-disable-next-line no-restricted-syntax -- interop boundary: enumerateAllNormalDocs() is a throwing third-party async generator
     try {
       for await (const entry of this.dfm.enumerateAllNormalDocs({

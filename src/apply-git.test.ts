@@ -58,34 +58,69 @@ describe('loadApplyChanges', () => {
       git('add', 'src/after.md')
       const to = commit('backup-bot@example.invalid', 'backup snapshot')
 
-      const result = await loadApplyChanges({
-        checkoutPath,
-        from,
-        to,
-        vaultDir: 'src/',
-        excludedAuthorEmail: 'backup-bot@example.invalid',
-      })
-      const changes = result._unsafeUnwrap().map((change) => ({
-        commit: change.commit,
-        path: change.path,
-        before: change.before?.toString(),
-        after: change.after?.toString(),
-      }))
+      const load = async (vaultDir: string) => {
+        const result = await loadApplyChanges({
+          checkoutPath,
+          from,
+          to,
+          vaultDir,
+          excludedAuthorEmail: 'backup-bot@example.invalid',
+        })
+        return Promise.all(
+          result._unsafeUnwrap().map(async (change) => ({
+            commit: change.commit,
+            path: change.path,
+            before:
+              change.before === undefined
+                ? undefined
+                : Buffer.isBuffer(change.before)
+                  ? change.before.toString()
+                  : (await change.before.read())._unsafeUnwrap().toString(),
+            after:
+              change.after === undefined
+                ? undefined
+                : Buffer.isBuffer(change.after)
+                  ? change.after.toString()
+                  : (await change.after.read())._unsafeUnwrap().toString(),
+          })),
+        )
+      }
 
-      expect(changes).toEqual([
-        {
-          commit: renameCommit.slice(0, 12),
-          path: 'after.md',
-          before: undefined,
-          after: 'before',
-        },
-        {
-          commit: renameCommit.slice(0, 12),
-          path: 'before.md',
-          before: 'before',
-          after: undefined,
-        },
-      ])
+      const snapshotChanges = async () => ({
+        scoped: await load('src/'),
+        root: await load('.'),
+      })
+
+      expect(await snapshotChanges()).toEqual({
+        scoped: [
+          {
+            commit: renameCommit.slice(0, 12),
+            path: 'after.md',
+            before: undefined,
+            after: 'before',
+          },
+          {
+            commit: renameCommit.slice(0, 12),
+            path: 'before.md',
+            before: 'before',
+            after: undefined,
+          },
+        ],
+        root: [
+          {
+            commit: renameCommit.slice(0, 12),
+            path: 'src/after.md',
+            before: undefined,
+            after: 'before',
+          },
+          {
+            commit: renameCommit.slice(0, 12),
+            path: 'src/before.md',
+            before: 'before',
+            after: undefined,
+          },
+        ],
+      })
     } finally {
       rmSync(checkoutPath, { recursive: true, force: true })
     }

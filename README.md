@@ -20,7 +20,7 @@ pnpm build
 
 ## Apply pushed changes
 
-The `apply` command compares each non-backup commit between two refs with the current vault and writes only changes whose current bytes still match the commit's parent. It uses the same CouchDB, E2E, and exclusion environment variables as the backup command.
+The `apply` command compares each non-backup commit between two refs with the current vault and writes only changes whose current bytes still match the commit's parent. It uses the same CouchDB, E2E, and exclusion environment variables as the backup command. Set `BACKUP_AUTHOR_EMAIL` to the author email used by backup snapshot commits; commits with that author are skipped.
 
 ```sh
 node dist/main.js apply \
@@ -31,4 +31,4 @@ node dist/main.js apply \
   --exclude-author-email "$BACKUP_AUTHOR_EMAIL"
 ```
 
-Exit code `0` means all changes were applied or already present. Exit code `1` means one or more files conflicted; other eligible files were still applied. Exit code `2` means configuration, Git, or CouchDB processing failed.
+Exit code `0` means all eligible changes were applied or already present; paths matched by the configured exclusions are skipped. Exit code `1` means one or more files conflicted; other eligible files were still applied. Exit code `2` means the arguments or configuration are invalid, the starting ref is not an ancestor of the target ref, or Git/CouchDB processing failed.
