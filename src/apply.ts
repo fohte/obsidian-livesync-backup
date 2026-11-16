@@ -31,13 +31,22 @@ export interface ApplyFileChange {
 export interface VaultState {
   readonly content: Buffer | undefined
   readonly rev: string | undefined
+  readonly ctime?: number
 }
 
 export interface ApplyStore {
   read(path: string): Promise<Result<VaultState, ApplyError>>
   readRevision(path: string): Promise<Result<string | undefined, ApplyError>>
-  put(path: string, content: Buffer): Promise<Result<void, ApplyError>>
-  delete(path: string): Promise<Result<void, ApplyError>>
+  put(
+    path: string,
+    content: Buffer,
+    expectedRevision: string | undefined,
+    ctime?: number,
+  ): Promise<Result<boolean, ApplyError>>
+  delete(
+    path: string,
+    expectedRevision: string | undefined,
+  ): Promise<Result<boolean, ApplyError>>
 }
 
 interface ApplyConflict {
@@ -174,7 +183,7 @@ export const applyChanges = async (
     const writeResult =
       contentResult.value === undefined
         ? await ResultAsync.fromPromise(
-            store.delete(change.path),
+            store.delete(change.path, current.rev),
             () =>
               new ApplyError('failed to delete the vault file', {
                 path: change.path,
@@ -182,7 +191,12 @@ export const applyChanges = async (
               }),
           )
         : await ResultAsync.fromPromise(
-            store.put(change.path, contentResult.value),
+            store.put(
+              change.path,
+              contentResult.value,
+              current.rev,
+              current.ctime,
+            ),
             () =>
               new ApplyError('failed to write the vault file', {
                 path: change.path,
@@ -191,6 +205,10 @@ export const applyChanges = async (
           )
     if (writeResult.isErr()) return err(writeResult.error)
     if (writeResult.value.isErr()) return err(writeResult.value.error)
+    if (!writeResult.value.value) {
+      conflicts.push({ commit: change.commit, path: change.path })
+      continue
+    }
     applied++
   }
 

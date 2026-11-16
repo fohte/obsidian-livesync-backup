@@ -9,7 +9,24 @@ import { createLivesyncClient, waitForLivesyncReady } from '#livesync-client'
 const READY_TIMEOUT_MS = 30_000
 
 interface RawEntry {
+  readonly ctime?: number
   readonly _rev?: string
+}
+
+interface LiveSyncMetadataDocument {
+  readonly _id: string
+  readonly _rev?: string
+}
+
+interface LiveSyncPutOptions {
+  readonly force?: boolean
+}
+
+interface LiveSyncDatabase {
+  put(
+    doc: LiveSyncMetadataDocument,
+    options?: LiveSyncPutOptions,
+  ): Promise<unknown>
 }
 
 class LivesyncReadError extends ApplyError {
@@ -23,15 +40,61 @@ class LivesyncReadError extends ApplyError {
   }
 }
 
+class LivesyncWriteError extends ApplyError {
+  override readonly name = 'LivesyncWriteError'
+
+  constructor(
+    readonly originalCause: unknown,
+    path: string,
+    operation: 'write' | 'delete',
+  ) {
+    super('failed to update a LiveSync file', { path, operation })
+  }
+}
+
 const isPlainTextContent = (content: Buffer): boolean =>
   // The backup reader only scans UTF-8 text entries for configured secrets.
   !content.includes(0) && isUtf8(content)
 
-const isMissingDocumentError = (cause: unknown): boolean =>
+const hasHttpStatus = (cause: unknown, status: number): boolean =>
   typeof cause === 'object' &&
   cause !== null &&
   'status' in cause &&
-  cause.status === 404
+  cause.status === status
+
+const isMissingDocumentError = (cause: unknown): boolean =>
+  hasHttpStatus(cause, 404)
+
+const isRevisionConflictError = (cause: unknown): boolean =>
+  hasHttpStatus(cause, 409)
+
+const withRevisionGuard = <T>(
+  database: LiveSyncDatabase,
+  id: string,
+  expectedRevision: string | undefined,
+  write: () => Promise<T>,
+): Promise<T> => {
+  const originalPut = database.put.bind(database)
+  database.put = (doc, options) => {
+    if (doc._id !== id) return originalPut(doc, options)
+    if (doc._rev !== expectedRevision) {
+      return Promise.reject(
+        Object.assign(new Error('LiveSync file revision changed'), {
+          status: 409,
+        }),
+      )
+    }
+
+    // PouchDB's force option bypasses stale-revision rejection, so use normal MVCC for this write.
+    return originalPut(doc, { ...options, force: false })
+  }
+
+  return Promise.resolve()
+    .then(write)
+    .finally(() => {
+      database.put = originalPut
+    })
+}
 
 export class LivesyncApplyStore implements ApplyStore {
   private readonly dfm: ReturnType<typeof createLivesyncClient>
@@ -74,6 +137,13 @@ export class LivesyncApplyStore implements ApplyStore {
     }
 
     const entry = entryResult.value
+    const rawEntryResult = await ResultAsync.fromPromise(
+      this.dfm.rawGet<RawEntry>(idResult.value),
+      (cause: unknown) => new LivesyncReadError(cause, path),
+    )
+    if (rawEntryResult.isErr()) return err(rawEntryResult.error)
+    const rawEntry = rawEntryResult.value
+
     return ok({
       content:
         entry === false || entry.deleted === true
@@ -83,6 +153,12 @@ export class LivesyncApplyStore implements ApplyStore {
               entry.type === 'newnote' ? 'base64' : 'utf8',
             ),
       rev: entry === false ? undefined : entry._rev,
+      ...(entry !== false &&
+      entry.deleted !== true &&
+      rawEntry !== false &&
+      typeof rawEntry.ctime === 'number'
+        ? { ctime: rawEntry.ctime }
+        : {}),
     })
   }
 
@@ -113,9 +189,14 @@ export class LivesyncApplyStore implements ApplyStore {
     return result
   }
 
-  async put(path: string, content: Buffer): Promise<Result<void, ApplyError>> {
+  async put(
+    path: string,
+    content: Buffer,
+    expectedRevision: string | undefined,
+    ctime?: number,
+  ): Promise<Result<boolean, ApplyError>> {
     const result = await ResultAsync.fromPromise(
-      (async (): Promise<void> => {
+      (async (): Promise<boolean> => {
         await waitForLivesyncReady(
           this.dfm.ready.promise,
           READY_TIMEOUT_MS,
@@ -125,38 +206,52 @@ export class LivesyncApplyStore implements ApplyStore {
               { path, operation: 'connect' },
             ),
         )
+        const id = await this.dfm.path2id(path)
+        const database = this.dfm.liveSyncLocalDB.localDatabase
         const plainText = isPlainTextContent(content)
         const blob = new Blob([new Uint8Array(content)], {
           type: plainText ? 'text/plain' : 'application/octet-stream',
         })
-        const saved = await this.dfm.put(
-          path,
-          blob,
-          {
-            ctime: Date.now(),
-            mtime: Date.now(),
-            size: content.byteLength,
-          },
-          plainText ? 'plain' : 'newnote',
+        const saved = await withRevisionGuard(
+          database,
+          id,
+          expectedRevision,
+          () =>
+            this.dfm.put(
+              path,
+              blob,
+              {
+                ctime: ctime ?? Date.now(),
+                mtime: Date.now(),
+                size: content.byteLength,
+              },
+              plainText ? 'plain' : 'newnote',
+            ),
         )
         if (!saved) {
           return Promise.reject(
             new ApplyError('LiveSync rejected a file write'),
           )
         }
+        return true
       })(),
-      () =>
-        new ApplyError('failed to write a LiveSync file', {
-          path,
-          operation: 'write',
-        }),
+      (cause) => new LivesyncWriteError(cause, path, 'write'),
     )
+    if (result.isErr()) {
+      if (isRevisionConflictError(result.error.originalCause)) return ok(false)
+      return err(result.error)
+    }
     return result
   }
 
-  async delete(path: string): Promise<Result<void, ApplyError>> {
+  async delete(
+    path: string,
+    expectedRevision: string | undefined,
+  ): Promise<Result<boolean, ApplyError>> {
+    if (expectedRevision === undefined) return ok(false)
+
     const result = await ResultAsync.fromPromise(
-      (async (): Promise<void> => {
+      (async (): Promise<boolean> => {
         await waitForLivesyncReady(
           this.dfm.ready.promise,
           READY_TIMEOUT_MS,
@@ -166,19 +261,17 @@ export class LivesyncApplyStore implements ApplyStore {
               { path, operation: 'connect' },
             ),
         )
-        const deleted = await this.dfm.delete(path)
-        if (!deleted) {
-          return Promise.reject(
-            new ApplyError('LiveSync rejected a file deletion'),
-          )
-        }
+        const deleted = await this.dfm.liveSyncLocalDB.deleteDBEntry(path, {
+          rev: expectedRevision,
+        })
+        return deleted
       })(),
-      () =>
-        new ApplyError('failed to delete a LiveSync file', {
-          path,
-          operation: 'delete',
-        }),
+      (cause) => new LivesyncWriteError(cause, path, 'delete'),
     )
+    if (result.isErr()) {
+      if (isRevisionConflictError(result.error.originalCause)) return ok(false)
+      return err(result.error)
+    }
     return result
   }
 
