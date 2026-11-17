@@ -55,6 +55,19 @@ const changesFrom = (base: string, side: string): Hunk[] => {
   return changes
 }
 
+const expandLineChanges = (changes: readonly Hunk[]): Hunk[] =>
+  changes.flatMap((change) => {
+    const lineCount = change.end - change.start
+    if (lineCount !== change.replacement.length || lineCount < 2) {
+      return [change]
+    }
+    return change.replacement.map((line, index) => ({
+      start: change.start + index,
+      end: change.start + index + 1,
+      replacement: [line],
+    }))
+  })
+
 const sameHunk = (left: Hunk, right: Hunk): boolean =>
   left.start === right.start &&
   left.end === right.end &&
@@ -79,8 +92,8 @@ export const mergeText = (
   current: string,
   pushed: string,
 ): string | undefined => {
-  const currentChanges = changesFrom(base, current)
-  const pushedChanges = changesFrom(base, pushed)
+  const currentChanges = expandLineChanges(changesFrom(base, current))
+  const pushedChanges = expandLineChanges(changesFrom(base, pushed))
 
   for (const currentChange of currentChanges) {
     for (const pushedChange of pushedChanges) {

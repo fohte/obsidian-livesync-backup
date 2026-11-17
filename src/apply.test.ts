@@ -358,6 +358,35 @@ describe('applyChanges', () => {
     })
   })
 
+  it('keeps an identical edit alongside an independent edit', async () => {
+    const store = new MemoryStore()
+    store.files.set('note.md', {
+      content: Buffer.from('first\nvault\nthird\n'),
+      rev: 'old-rev',
+    })
+
+    const result = await applyChanges(
+      [
+        {
+          commit: 'abc123',
+          path: 'note.md',
+          before: Buffer.from('first\nsecond\nthird\n'),
+          after: Buffer.from('first\nvault\nrepo\n'),
+        },
+      ],
+      store,
+      () => false,
+    )
+
+    expect(snapshot(result._unsafeUnwrap(), store)).toEqual({
+      result: { applied: 1, skipped: 0, conflicts: [] },
+      writes: ['put:note.md'],
+      files: {
+        'note.md': { content: 'first\nvault\nrepo\n', rev: '1-rev' },
+      },
+    })
+  })
+
   it('does not write when both sides edit the same line', async () => {
     const store = new MemoryStore()
     store.files.set('note.md', {

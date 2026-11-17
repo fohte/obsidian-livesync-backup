@@ -20,7 +20,7 @@ pnpm build
 
 ## Apply pushed changes
 
-The `apply` command compares each non-backup commit between two refs with the current vault and writes only changes whose current bytes still match the commit's parent. It uses the same CouchDB, E2E, and exclusion environment variables as the backup command. Set `BACKUP_AUTHOR_EMAIL` to the author email used by backup snapshot commits; commits with that author are skipped.
+The `apply` command compares each non-backup commit between two refs with the current vault. When UTF-8 text differs from the commit's parent, it writes a line-based three-way merge if the edits do not overlap. Overlapping edits, deletion/edit pairs, non-text files, and conflicting content at a new path are reported as conflicts. Revision changes are retried up to three times. It uses the same CouchDB, E2E, and exclusion environment variables as the backup command. Set `BACKUP_AUTHOR_EMAIL` to the author email used by backup snapshot commits; commits with that author are skipped.
 
 ```sh
 node dist/main.js apply \
