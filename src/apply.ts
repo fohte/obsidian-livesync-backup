@@ -1,6 +1,11 @@
+import { isUtf8 } from 'node:buffer'
 import { createHash } from 'node:crypto'
 
 import { err, ok, type Result, ResultAsync } from 'neverthrow'
+
+import { mergeText } from '#three-way-merge'
+
+const MAX_WRITE_ATTEMPTS = 3
 
 export class ApplyError extends Error {
   override readonly name: string = 'ApplyError'
@@ -125,91 +130,115 @@ export const applyChanges = async (
       continue
     }
 
-    const currentResult = await ResultAsync.fromPromise(
-      store.read(change.path),
-      () =>
-        new ApplyError('failed to read the current vault file', {
-          path: change.path,
-          operation: 'read',
-        }),
-    )
-    if (currentResult.isErr()) return err(currentResult.error)
-    if (currentResult.value.isErr()) return err(currentResult.value.error)
-    const current = currentResult.value.value
+    let completed = false
+    for (let attempt = 0; attempt < MAX_WRITE_ATTEMPTS; attempt++) {
+      const currentResult = await ResultAsync.fromPromise(
+        store.read(change.path),
+        () =>
+          new ApplyError('failed to read the current vault file', {
+            path: change.path,
+            operation: 'read',
+          }),
+      )
+      if (currentResult.isErr()) return err(currentResult.error)
+      if (currentResult.value.isErr()) return err(currentResult.value.error)
+      const current = currentResult.value.value
 
-    const afterMatch = await equal(current.content, change.after)
-    if (afterMatch.isErr()) return err(afterMatch.error)
-    if (afterMatch.value) {
-      skipped++
-      continue
-    }
-    let alreadyAtLaterState = false
-    for (let index = pathCursor + 1; index < pathChanges.length; index++) {
-      const laterMatch = await equal(current.content, pathChanges[index]?.after)
-      if (laterMatch.isErr()) return err(laterMatch.error)
-      if (laterMatch.value) {
-        alreadyAtLaterState = true
+      const afterMatch = await equal(current.content, change.after)
+      if (afterMatch.isErr()) return err(afterMatch.error)
+      if (afterMatch.value) {
+        skipped++
+        completed = true
         break
       }
-    }
-    if (alreadyAtLaterState) {
-      skipped++
-      continue
-    }
-    const beforeMatch = await equal(current.content, change.before)
-    if (beforeMatch.isErr()) return err(beforeMatch.error)
-    if (!beforeMatch.value) {
-      conflicts.push({ commit: change.commit, path: change.path })
-      continue
-    }
+      let alreadyAtLaterState = false
+      for (let index = pathCursor + 1; index < pathChanges.length; index++) {
+        const laterMatch = await equal(
+          current.content,
+          pathChanges[index]?.after,
+        )
+        if (laterMatch.isErr()) return err(laterMatch.error)
+        if (laterMatch.value) {
+          alreadyAtLaterState = true
+          break
+        }
+      }
+      if (alreadyAtLaterState) {
+        skipped++
+        completed = true
+        break
+      }
 
-    const revisionResult = await ResultAsync.fromPromise(
-      store.readRevision(change.path),
-      () =>
-        new ApplyError('failed to recheck the vault revision', {
-          path: change.path,
-          operation: 'revision_check',
-        }),
-    )
-    if (revisionResult.isErr()) return err(revisionResult.error)
-    if (revisionResult.value.isErr()) return err(revisionResult.value.error)
-    if (revisionResult.value.value !== current.rev) {
-      conflicts.push({ commit: change.commit, path: change.path })
-      continue
-    }
+      const beforeMatch = await equal(current.content, change.before)
+      if (beforeMatch.isErr()) return err(beforeMatch.error)
+      const contentResult = await readContent(change.after)
+      if (contentResult.isErr()) return err(contentResult.error)
+      let content = contentResult.value
 
-    const contentResult = await readContent(change.after)
-    if (contentResult.isErr()) return err(contentResult.error)
-    const writeResult =
-      contentResult.value === undefined
-        ? await ResultAsync.fromPromise(
-            store.delete(change.path, current.rev),
-            () =>
-              new ApplyError('failed to delete the vault file', {
-                path: change.path,
-                operation: 'delete',
-              }),
-          )
-        : await ResultAsync.fromPromise(
-            store.put(
-              change.path,
-              contentResult.value,
-              current.rev,
-              current.ctime,
-            ),
-            () =>
-              new ApplyError('failed to write the vault file', {
-                path: change.path,
-                operation: 'write',
-              }),
-          )
-    if (writeResult.isErr()) return err(writeResult.error)
-    if (writeResult.value.isErr()) return err(writeResult.value.error)
-    if (!writeResult.value.value) {
-      conflicts.push({ commit: change.commit, path: change.path })
-      continue
+      if (!beforeMatch.value) {
+        const beforeResult = await readContent(change.before)
+        if (beforeResult.isErr()) return err(beforeResult.error)
+        const base = beforeResult.value
+        if (
+          base === undefined ||
+          current.content === undefined ||
+          content === undefined ||
+          !isUtf8(base) ||
+          !isUtf8(current.content) ||
+          !isUtf8(content) ||
+          base.includes(0) ||
+          current.content.includes(0) ||
+          content.includes(0)
+        ) {
+          break
+        }
+        const merged = mergeText(
+          base.toString('utf8'),
+          current.content.toString('utf8'),
+          content.toString('utf8'),
+        )
+        if (merged === undefined) break
+        content = Buffer.from(merged, 'utf8')
+      }
+
+      const revisionResult = await ResultAsync.fromPromise(
+        store.readRevision(change.path),
+        () =>
+          new ApplyError('failed to recheck the vault revision', {
+            path: change.path,
+            operation: 'revision_check',
+          }),
+      )
+      if (revisionResult.isErr()) return err(revisionResult.error)
+      if (revisionResult.value.isErr()) return err(revisionResult.value.error)
+      if (revisionResult.value.value !== current.rev) continue
+
+      const writeResult =
+        content === undefined
+          ? await ResultAsync.fromPromise(
+              store.delete(change.path, current.rev),
+              () =>
+                new ApplyError('failed to delete the vault file', {
+                  path: change.path,
+                  operation: 'delete',
+                }),
+            )
+          : await ResultAsync.fromPromise(
+              store.put(change.path, content, current.rev, current.ctime),
+              () =>
+                new ApplyError('failed to write the vault file', {
+                  path: change.path,
+                  operation: 'write',
+                }),
+            )
+      if (writeResult.isErr()) return err(writeResult.error)
+      if (writeResult.value.isErr()) return err(writeResult.value.error)
+      if (!writeResult.value.value) continue
+      applied++
+      completed = true
+      break
     }
-    applied++
+    if (!completed) conflicts.push({ commit: change.commit, path: change.path })
   }
 
   return ok({ applied, skipped, conflicts })

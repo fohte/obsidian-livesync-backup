@@ -10,7 +10,6 @@
   "ignoreDependencies": [
     "@commitlint/cli",
     "@types/pouchdb",
-    "diff-match-patch",
     "fflate",
     "octagonal-wheels",
     "pouchdb-adapter-http",
