@@ -29,6 +29,10 @@ describe('mergeText', () => {
     expect(mergeText('a\nb\nc', 'A\nb\nc', 'a\nB\nc')).toEqual('A\nB\nc')
   })
 
+  it('reports a conflict when one side removes the final newline and the other appends a line', () => {
+    expect(mergeText('a\nb\n', 'a\nb', 'a\nb\nc\n')).toEqual(undefined)
+  })
+
   it('preserves CRLF line endings', () => {
     expect(
       mergeText('a\r\nb\r\nc\r\n', 'A\r\nb\r\nc\r\n', 'a\r\nB\r\nc\r\n'),

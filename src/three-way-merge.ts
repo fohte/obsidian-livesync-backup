@@ -85,9 +85,23 @@ const overlaps = (left: Hunk, right: Hunk): boolean => {
     return left.start === right.start
   }
   if (left.start === left.end) {
+    if (
+      left.start === right.rangeEnd &&
+      right.end === right.rangeEnd &&
+      right.replacement.at(-1)?.endsWith('\n') !== true
+    ) {
+      return true
+    }
     return left.start > right.rangeStart && left.start < right.rangeEnd
   }
   if (right.start === right.end) {
+    if (
+      right.start === left.rangeEnd &&
+      left.end === left.rangeEnd &&
+      left.replacement.at(-1)?.endsWith('\n') !== true
+    ) {
+      return true
+    }
     return right.start > left.rangeStart && right.start < left.rangeEnd
   }
   return left.start < right.end && right.start < left.end
