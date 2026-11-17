@@ -3,6 +3,8 @@ import DiffMatchPatchConstructor from 'diff-match-patch'
 interface Hunk {
   readonly start: number
   readonly end: number
+  readonly rangeStart: number
+  readonly rangeEnd: number
   readonly replacement: readonly string[]
 }
 
@@ -29,6 +31,8 @@ const changesFrom = (base: string, side: string): Hunk[] => {
     changes.push({
       start: pendingStart,
       end: pendingEnd,
+      rangeStart: pendingStart,
+      rangeEnd: pendingEnd,
       replacement,
     })
     pendingStart = undefined
@@ -64,6 +68,8 @@ const expandLineChanges = (changes: readonly Hunk[]): Hunk[] =>
     return change.replacement.map((line, index) => ({
       start: change.start + index,
       end: change.start + index + 1,
+      rangeStart: change.rangeStart,
+      rangeEnd: change.rangeEnd,
       replacement: [line],
     }))
   })
@@ -79,10 +85,10 @@ const overlaps = (left: Hunk, right: Hunk): boolean => {
     return left.start === right.start
   }
   if (left.start === left.end) {
-    return left.start > right.start && left.start < right.end
+    return left.start > right.rangeStart && left.start < right.rangeEnd
   }
   if (right.start === right.end) {
-    return right.start > left.start && right.start < left.end
+    return right.start > left.rangeStart && right.start < left.rangeEnd
   }
   return left.start < right.end && right.start < left.end
 }
