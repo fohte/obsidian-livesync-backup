@@ -80,28 +80,29 @@ const sameHunk = (left: Hunk, right: Hunk): boolean =>
   left.replacement.length === right.replacement.length &&
   left.replacement.every((line, index) => line === right.replacement[index])
 
+const isUnterminatedAppendConflict = (
+  insertion: Hunk,
+  replacement: Hunk,
+): boolean => {
+  const lastLine = replacement.replacement.at(-1)
+  return (
+    insertion.start === replacement.rangeEnd &&
+    replacement.end === replacement.rangeEnd &&
+    lastLine !== undefined &&
+    !lastLine.endsWith('\n')
+  )
+}
+
 const overlaps = (left: Hunk, right: Hunk): boolean => {
   if (left.start === left.end && right.start === right.end) {
     return left.start === right.start
   }
   if (left.start === left.end) {
-    if (
-      left.start === right.rangeEnd &&
-      right.end === right.rangeEnd &&
-      right.replacement.at(-1)?.endsWith('\n') !== true
-    ) {
-      return true
-    }
+    if (isUnterminatedAppendConflict(left, right)) return true
     return left.start > right.rangeStart && left.start < right.rangeEnd
   }
   if (right.start === right.end) {
-    if (
-      right.start === left.rangeEnd &&
-      left.end === left.rangeEnd &&
-      left.replacement.at(-1)?.endsWith('\n') !== true
-    ) {
-      return true
-    }
+    if (isUnterminatedAppendConflict(right, left)) return true
     return right.start > left.rangeStart && right.start < left.rangeEnd
   }
   return left.start < right.end && right.start < left.end

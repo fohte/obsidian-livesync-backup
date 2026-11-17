@@ -33,6 +33,16 @@ describe('mergeText', () => {
     expect(mergeText('a\nb\n', 'a\nb', 'a\nb\nc\n')).toEqual(undefined)
   })
 
+  it('reports the same final-newline conflict when the sides are reversed', () => {
+    expect(mergeText('a\nb\n', 'a\nb\nc\n', 'a\nb')).toEqual(undefined)
+  })
+
+  it('merges an insertion at the end boundary of a deleted line', () => {
+    expect(mergeText('a\nb\nc\n', 'a\nc\n', 'a\nb\nINS\nc\n')).toEqual(
+      'a\nINS\nc\n',
+    )
+  })
+
   it('preserves CRLF line endings', () => {
     expect(
       mergeText('a\r\nb\r\nc\r\n', 'A\r\nb\r\nc\r\n', 'a\r\nB\r\nc\r\n'),
