@@ -14,18 +14,18 @@ class MemoryStore implements ApplyStore {
   readonly files = new Map<string, VaultState>()
   readonly writes: string[] = []
   readonly writeCtimes: (number | undefined)[] = []
-  readonly writeConflictPaths = new Set<string>()
-  changedRevision: string | undefined
+  readonly writeConflictStates = new Map<string, VaultState[]>()
+  readonly revisionChangeStates = new Map<string, VaultState>()
 
   async read(path: string) {
     return ok(this.files.get(path) ?? { content: undefined, rev: undefined })
   }
 
   async readRevision(path: string) {
-    if (this.changedRevision === path) {
-      const current = this.files.get(path)
-      if (current) this.files.set(path, { ...current, rev: 'new-rev' })
-      this.changedRevision = undefined
+    const changedState = this.revisionChangeStates.get(path)
+    if (changedState) {
+      this.files.set(path, changedState)
+      this.revisionChangeStates.delete(path)
     }
     return ok(this.files.get(path)?.rev)
   }
@@ -39,7 +39,12 @@ class MemoryStore implements ApplyStore {
     this.writes.push(`put:${path}`)
     this.writeCtimes.push(ctime)
     if (this.files.get(path)?.rev !== expectedRevision) return ok(false)
-    if (this.writeConflictPaths.delete(path)) return ok(false)
+    const conflicts = this.writeConflictStates.get(path)
+    const concurrentState = conflicts?.shift()
+    if (concurrentState) {
+      this.files.set(path, concurrentState)
+      return ok(false)
+    }
     this.files.set(path, {
       content,
       rev: `${this.writes.length.toString()}-rev`,
@@ -51,7 +56,12 @@ class MemoryStore implements ApplyStore {
   async delete(path: string, expectedRevision: string | undefined) {
     this.writes.push(`delete:${path}`)
     if (this.files.get(path)?.rev !== expectedRevision) return ok(false)
-    if (this.writeConflictPaths.delete(path)) return ok(false)
+    const conflicts = this.writeConflictStates.get(path)
+    const concurrentState = conflicts?.shift()
+    if (concurrentState) {
+      this.files.set(path, concurrentState)
+      return ok(false)
+    }
     this.files.delete(path)
     return ok(true)
   }
@@ -68,15 +78,14 @@ const snapshot = (result: ApplyOutcome, store: MemoryStore) => ({
   ),
 })
 
-const snapshotCurrent = (result: ApplyOutcome, store: MemoryStore) => ({
+const snapshotFileBytes = (
+  result: ApplyOutcome,
+  store: MemoryStore,
+  path: string,
+) => ({
   result,
   writes: store.writes,
-  current: store.files.get('note.md'),
-})
-
-const snapshotBytes = (result: ApplyOutcome, store: MemoryStore) => ({
-  result,
-  bytes: [...(store.files.get('image.png')?.content ?? [])],
+  bytes: [...(store.files.get(path)?.content ?? [])],
 })
 
 const snapshotWriteMetadata = (result: ApplyOutcome, store: MemoryStore) => ({
@@ -173,35 +182,36 @@ describe('applyChanges', () => {
     })
   })
 
-  it('treats a changed revision between compare and write as a conflict', async () => {
+  it('rechecks and merges when the revision changes after reading', async () => {
     const store = new MemoryStore()
     store.files.set('note.md', {
-      content: Buffer.from('parent'),
+      content: Buffer.from('first\nsecond\n'),
       rev: 'old-rev',
     })
-    store.changedRevision = 'note.md'
+    store.revisionChangeStates.set('note.md', {
+      content: Buffer.from('vault\nsecond\n'),
+      rev: 'new-rev',
+    })
 
     const result = await applyChanges(
       [
         {
           commit: 'abc123',
           path: 'note.md',
-          before: Buffer.from('parent'),
-          after: Buffer.from('pushed'),
+          before: Buffer.from('first\nsecond\n'),
+          after: Buffer.from('first\nrepo\n'),
         },
       ],
       store,
       () => false,
     )
 
-    expect(snapshotCurrent(result._unsafeUnwrap(), store)).toEqual({
-      result: {
-        applied: 0,
-        skipped: 0,
-        conflicts: [{ commit: 'abc123', path: 'note.md' }],
+    expect(snapshot(result._unsafeUnwrap(), store)).toEqual({
+      result: { applied: 1, skipped: 0, conflicts: [] },
+      writes: ['put:note.md'],
+      files: {
+        'note.md': { content: 'vault\nrepo\n', rev: '1-rev' },
       },
-      writes: [],
-      current: { content: Buffer.from('parent'), rev: 'new-rev' },
     })
   })
 
@@ -237,23 +247,27 @@ describe('applyChanges', () => {
   it('reports conflicts when conditional writes detect a concurrent edit', async () => {
     const store = new MemoryStore()
     store.files.set('edit.md', {
-      content: Buffer.from('before'),
+      content: Buffer.from('first\nsecond\n'),
       rev: 'edit-rev',
     })
     store.files.set('remove.md', {
       content: Buffer.from('remove'),
       rev: 'remove-rev',
     })
-    store.writeConflictPaths.add('edit.md')
-    store.writeConflictPaths.add('remove.md')
+    store.writeConflictStates.set('edit.md', [
+      { content: Buffer.from('vault\nsecond\n'), rev: 'edit-new-rev' },
+    ])
+    store.writeConflictStates.set('remove.md', [
+      { content: Buffer.from('concurrent'), rev: 'remove-new-rev' },
+    ])
 
     const result = await applyChanges(
       [
         {
           commit: 'abc123',
           path: 'edit.md',
-          before: Buffer.from('before'),
-          after: Buffer.from('after'),
+          before: Buffer.from('first\nsecond\n'),
+          after: Buffer.from('first\nrepo\n'),
         },
         {
           commit: 'def456',
@@ -268,17 +282,14 @@ describe('applyChanges', () => {
 
     expect(snapshot(result._unsafeUnwrap(), store)).toEqual({
       result: {
-        applied: 0,
+        applied: 1,
         skipped: 0,
-        conflicts: [
-          { commit: 'abc123', path: 'edit.md' },
-          { commit: 'def456', path: 'remove.md' },
-        ],
+        conflicts: [{ commit: 'def456', path: 'remove.md' }],
       },
-      writes: ['put:edit.md', 'delete:remove.md'],
+      writes: ['put:edit.md', 'put:edit.md', 'delete:remove.md'],
       files: {
-        'edit.md': { content: 'before', rev: 'edit-rev' },
-        'remove.md': { content: 'remove', rev: 'remove-rev' },
+        'edit.md': { content: 'vault\nrepo\n', rev: '2-rev' },
+        'remove.md': { content: 'concurrent', rev: 'remove-new-rev' },
       },
     })
   })
@@ -318,6 +329,249 @@ describe('applyChanges', () => {
     })
   })
 
+  it('preserves independent edits on different lines', async () => {
+    const store = new MemoryStore()
+    store.files.set('note.md', {
+      content: Buffer.from('vault\nsecond\nthird\n'),
+      rev: 'old-rev',
+    })
+
+    const result = await applyChanges(
+      [
+        {
+          commit: 'abc123',
+          path: 'note.md',
+          before: Buffer.from('first\nsecond\nthird\n'),
+          after: Buffer.from('first\nsecond\nrepo\n'),
+        },
+      ],
+      store,
+      () => false,
+    )
+
+    expect(snapshot(result._unsafeUnwrap(), store)).toEqual({
+      result: { applied: 1, skipped: 0, conflicts: [] },
+      writes: ['put:note.md'],
+      files: {
+        'note.md': { content: 'vault\nsecond\nrepo\n', rev: '1-rev' },
+      },
+    })
+  })
+
+  it('does not write when both sides edit the same line', async () => {
+    const store = new MemoryStore()
+    store.files.set('note.md', {
+      content: Buffer.from('first\nvault\nthird\n'),
+      rev: 'old-rev',
+    })
+
+    const result = await applyChanges(
+      [
+        {
+          commit: 'abc123',
+          path: 'note.md',
+          before: Buffer.from('first\nsecond\nthird\n'),
+          after: Buffer.from('first\nrepo\nthird\n'),
+        },
+      ],
+      store,
+      () => false,
+    )
+
+    expect(snapshot(result._unsafeUnwrap(), store)).toEqual({
+      result: {
+        applied: 0,
+        skipped: 0,
+        conflicts: [{ commit: 'abc123', path: 'note.md' }],
+      },
+      writes: [],
+      files: {
+        'note.md': { content: 'first\nvault\nthird\n', rev: 'old-rev' },
+      },
+    })
+  })
+
+  it('does not merge invalid UTF-8 content', async () => {
+    const store = new MemoryStore()
+    store.files.set('note.md', {
+      content: Buffer.from([0xff, 0x0a]),
+      rev: 'old-rev',
+    })
+
+    const result = await applyChanges(
+      [
+        {
+          commit: 'abc123',
+          path: 'note.md',
+          before: Buffer.from([0xfe, 0x0a]),
+          after: Buffer.from([0xfd, 0x0a]),
+        },
+      ],
+      store,
+      () => false,
+    )
+
+    expect(snapshotFileBytes(result._unsafeUnwrap(), store, 'note.md')).toEqual(
+      {
+        result: {
+          applied: 0,
+          skipped: 0,
+          conflicts: [{ commit: 'abc123', path: 'note.md' }],
+        },
+        writes: [],
+        bytes: [0xff, 0x0a],
+      },
+    )
+  })
+
+  it('does not merge deletion and editing in either direction', async () => {
+    const store = new MemoryStore()
+    store.files.set('repo-delete.md', {
+      content: Buffer.from('vault edit'),
+      rev: 'repo-delete-rev',
+    })
+    store.files.set('vault-delete.md', {
+      content: undefined,
+      rev: undefined,
+    })
+
+    const result = await applyChanges(
+      [
+        {
+          commit: 'abc123',
+          path: 'repo-delete.md',
+          before: Buffer.from('base'),
+          after: undefined,
+        },
+        {
+          commit: 'def456',
+          path: 'vault-delete.md',
+          before: Buffer.from('base'),
+          after: Buffer.from('repo edit'),
+        },
+      ],
+      store,
+      () => false,
+    )
+
+    expect(snapshot(result._unsafeUnwrap(), store)).toEqual({
+      result: {
+        applied: 0,
+        skipped: 0,
+        conflicts: [
+          { commit: 'abc123', path: 'repo-delete.md' },
+          { commit: 'def456', path: 'vault-delete.md' },
+        ],
+      },
+      writes: [],
+      files: {
+        'repo-delete.md': { content: 'vault edit', rev: 'repo-delete-rev' },
+        'vault-delete.md': { content: undefined, rev: undefined },
+      },
+    })
+  })
+
+  it('does not overwrite different content at a new file path', async () => {
+    const store = new MemoryStore()
+    store.files.set('note.md', {
+      content: Buffer.from('other'),
+      rev: 'old-rev',
+    })
+
+    const result = await applyChanges(
+      [
+        {
+          commit: 'abc123',
+          path: 'note.md',
+          before: undefined,
+          after: Buffer.from('repo'),
+        },
+      ],
+      store,
+      () => false,
+    )
+
+    expect(snapshot(result._unsafeUnwrap(), store)).toEqual({
+      result: {
+        applied: 0,
+        skipped: 0,
+        conflicts: [{ commit: 'abc123', path: 'note.md' }],
+      },
+      writes: [],
+      files: { 'note.md': { content: 'other', rev: 'old-rev' } },
+    })
+  })
+
+  it('retries a revision conflict and merges the concurrent edit', async () => {
+    const store = new MemoryStore()
+    store.files.set('note.md', {
+      content: Buffer.from('first\nsecond\nthird\n'),
+      rev: 'old-rev',
+    })
+    store.writeConflictStates.set('note.md', [
+      { content: Buffer.from('vault\nsecond\nthird\n'), rev: 'new-rev' },
+    ])
+
+    const result = await applyChanges(
+      [
+        {
+          commit: 'abc123',
+          path: 'note.md',
+          before: Buffer.from('first\nsecond\nthird\n'),
+          after: Buffer.from('first\nsecond\nrepo\n'),
+        },
+      ],
+      store,
+      () => false,
+    )
+
+    expect(snapshot(result._unsafeUnwrap(), store)).toEqual({
+      result: { applied: 1, skipped: 0, conflicts: [] },
+      writes: ['put:note.md', 'put:note.md'],
+      files: {
+        'note.md': { content: 'vault\nsecond\nrepo\n', rev: '2-rev' },
+      },
+    })
+  })
+
+  it('reports a conflict after exhausting write retries', async () => {
+    const store = new MemoryStore()
+    store.files.set('note.md', {
+      content: Buffer.from('first\nsecond\nthird\n'),
+      rev: 'old-rev',
+    })
+    store.writeConflictStates.set('note.md', [
+      { content: Buffer.from('vault\nsecond\nthird\n'), rev: 'new-rev-1' },
+      { content: Buffer.from('vault\nsecond\nthird\n'), rev: 'new-rev-2' },
+      { content: Buffer.from('vault\nsecond\nthird\n'), rev: 'new-rev-3' },
+    ])
+
+    const result = await applyChanges(
+      [
+        {
+          commit: 'abc123',
+          path: 'note.md',
+          before: Buffer.from('first\nsecond\nthird\n'),
+          after: Buffer.from('first\nsecond\nrepo\n'),
+        },
+      ],
+      store,
+      () => false,
+    )
+
+    expect(snapshot(result._unsafeUnwrap(), store)).toEqual({
+      result: {
+        applied: 0,
+        skipped: 0,
+        conflicts: [{ commit: 'abc123', path: 'note.md' }],
+      },
+      writes: ['put:note.md', 'put:note.md', 'put:note.md'],
+      files: {
+        'note.md': { content: 'vault\nsecond\nthird\n', rev: 'new-rev-3' },
+      },
+    })
+  })
+
   it('compares binary content byte-for-byte', async () => {
     const store = new MemoryStore()
     store.files.set('image.png', {
@@ -338,8 +592,11 @@ describe('applyChanges', () => {
       () => false,
     )
 
-    expect(snapshotBytes(result._unsafeUnwrap(), store)).toEqual({
+    expect(
+      snapshotFileBytes(result._unsafeUnwrap(), store, 'image.png'),
+    ).toEqual({
       result: { applied: 1, skipped: 0, conflicts: [] },
+      writes: ['put:image.png'],
       bytes: [0, 255, 17],
     })
   })
@@ -363,8 +620,11 @@ describe('applyChanges', () => {
       () => false,
     )
 
-    expect(snapshotBytes(result._unsafeUnwrap(), store)).toEqual({
+    expect(
+      snapshotFileBytes(result._unsafeUnwrap(), store, 'image.png'),
+    ).toEqual({
       result: { applied: 1, skipped: 0, conflicts: [] },
+      writes: ['put:image.png'],
       bytes: [0, 255, 17],
     })
   })
