@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { ApplyStore } from '#apply'
+import type { ApplyStore, VaultState } from '#apply'
 
 interface FakeEntry {
   readonly ctime?: number
@@ -25,7 +25,9 @@ interface TestState {
       }
     | undefined
   databaseDelete:
-    { readonly path: string; readonly revision: string | undefined } | undefined
+    { readonly id: string; readonly revision: string | undefined } | undefined
+  readIds: string[]
+  rawReadIds: string[]
   put:
     | {
         readonly path: string
@@ -47,12 +49,16 @@ const state = vi.hoisted<TestState>(() => ({
   advanceBeforeDelete: false,
   databasePut: undefined,
   databaseDelete: undefined,
+  readIds: [],
+  rawReadIds: [],
   put: undefined,
 }))
 
 vi.mock('../vendor-dist/direct-file-manipulator.mjs', () => {
   class DirectFileManipulator {
     readonly ready: { promise: Promise<void> }
+    private readonly obfuscatePassphrase: string | undefined
+    private readonly handleFilenameCaseSensitive: boolean
     readonly liveSyncLocalDB = {
       localDatabase: {
         put: (
@@ -78,7 +84,10 @@ vi.mock('../vendor-dist/direct-file-manipulator.mjs', () => {
         },
       },
       deleteDBEntry: (path: string, options?: { readonly rev?: string }) => {
-        state.databaseDelete = { path, revision: options?.rev }
+        state.databaseDelete = {
+          id: this.path2idSync(path),
+          revision: options?.rev,
+        }
         if (state.advanceBeforeDelete) {
           state.databaseRevision = 'raced-revision'
           state.advanceBeforeDelete = false
@@ -96,7 +105,12 @@ vi.mock('../vendor-dist/direct-file-manipulator.mjs', () => {
       throw new Error('Method not implemented.')
     }
 
-    constructor() {
+    constructor(options: {
+      readonly obfuscatePassphrase: string | undefined
+      readonly handleFilenameCaseSensitive: boolean
+    }) {
+      this.obfuscatePassphrase = options.obfuscatePassphrase
+      this.handleFilenameCaseSensitive = options.handleFilenameCaseSensitive
       this.ready = {
         promise: new Promise<void>((resolve) => {
           state.resolveReady = resolve
@@ -105,24 +119,38 @@ vi.mock('../vendor-dist/direct-file-manipulator.mjs', () => {
     }
 
     async path2id(path: string) {
-      return path
+      return this.path2idSync(path)
     }
 
-    getById() {
+    private path2idSync(path: string) {
+      const normalizedPath = this.handleFilenameCaseSensitive
+        ? path
+        : path.toLowerCase()
+      return this.obfuscatePassphrase === undefined
+        ? normalizedPath
+        : `obfuscated:${normalizedPath}`
+    }
+
+    getById(id: string) {
+      state.readIds.push(id)
       if (state.getByIdError !== undefined) {
         return Promise.reject(state.getByIdError)
       }
       return Promise.resolve(state.entry)
     }
 
-    async rawGet() {
+    async rawGet(id: string) {
+      state.rawReadIds.push(id)
       return state.rawEntry
     }
 
     async put(path: string, blob: Blob, info: { ctime: number }, type: string) {
       const revision = state.databaseRevision
       await this.liveSyncLocalDB.localDatabase.put(
-        { _id: path, ...(revision === undefined ? {} : { _rev: revision }) },
+        {
+          _id: this.path2idSync(path),
+          ...(revision === undefined ? {} : { _rev: revision }),
+        },
         { force: true },
       )
       state.put = {
@@ -183,6 +211,21 @@ const snapshotMissingDocument = async (store: ApplyStore) => ({
   revision: (await store.readRevision('notes/new.md'))._unsafeUnwrap(),
 })
 
+const snapshotPathOperations = (
+  readResult: VaultState,
+  writeResult: boolean,
+  deleteResult: boolean,
+) => ({
+  readResult,
+  readIds: state.readIds,
+  rawReadIds: state.rawReadIds,
+  writeResult,
+  writtenDocument: state.put,
+  databasePut: state.databasePut,
+  deleteResult,
+  databaseDelete: state.databaseDelete,
+})
+
 beforeEach(() => {
   state.resolveReady = undefined
   state.entry = false
@@ -193,6 +236,8 @@ beforeEach(() => {
   state.advanceBeforeDelete = false
   state.databasePut = undefined
   state.databaseDelete = undefined
+  state.readIds = []
+  state.rawReadIds = []
   state.put = undefined
 })
 
@@ -254,7 +299,7 @@ describe('LivesyncApplyStore', () => {
         ctime: 123,
       },
       databasePut: {
-        id: 'settings.json',
+        id: 'obfuscated:settings.json',
         revision: '3-test-revision',
         force: false,
       },
@@ -278,7 +323,7 @@ describe('LivesyncApplyStore', () => {
       result: false,
       databaseRevision: 'raced-revision',
       databasePut: {
-        id: 'notes/raced.md',
+        id: 'obfuscated:notes/raced.md',
         revision: 'checked-revision',
         force: false,
       },
@@ -302,7 +347,7 @@ describe('LivesyncApplyStore', () => {
       result: false,
       databaseRevision: 'raced-revision',
       databasePut: {
-        id: 'notes/new.md',
+        id: 'obfuscated:notes/new.md',
         revision: undefined,
         force: false,
       },
@@ -322,8 +367,66 @@ describe('LivesyncApplyStore', () => {
       result: false,
       databaseRevision: 'raced-revision',
       databaseDelete: {
-        path: 'notes/raced.md',
+        id: 'obfuscated:notes/raced.md',
         revision: 'checked-revision',
+      },
+    })
+  })
+
+  it('uses lowercased plain document IDs for reads, writes, and deletes without path obfuscation', async () => {
+    state.entry = {
+      data: [Buffer.from('existing').toString('base64')],
+      type: 'newnote',
+      _rev: '3-current-revision',
+      ctime: 123,
+    }
+    state.rawEntry = { _rev: '3-current-revision', ctime: 123 }
+    state.databaseRevision = '3-current-revision'
+    const config = { ...couchdbConfig(), obfuscatePassphrase: undefined }
+    const store = new LivesyncApplyStore(config)
+    state.resolveReady?.()
+    const path = 'Notes/MixedCase.md'
+
+    const readResult = (await store.read(path))._unsafeUnwrap()
+    const writeResult = await store.put(
+      path,
+      Buffer.from('updated'),
+      '3-current-revision',
+      123,
+    )
+    const deleteResult = await store.delete(path, 'written-revision')
+
+    expect(
+      snapshotPathOperations(
+        readResult,
+        writeResult._unsafeUnwrap(),
+        deleteResult._unsafeUnwrap(),
+      ),
+    ).toEqual({
+      readResult: {
+        content: Buffer.from('existing'),
+        rev: '3-current-revision',
+        ctime: 123,
+      },
+      readIds: ['notes/mixedcase.md'],
+      rawReadIds: ['notes/mixedcase.md'],
+      writeResult: true,
+      writtenDocument: {
+        path,
+        type: 'plain',
+        blobType: 'text/plain',
+        bytes: [...Buffer.from('updated')],
+        ctime: 123,
+      },
+      databasePut: {
+        id: 'notes/mixedcase.md',
+        revision: '3-current-revision',
+        force: false,
+      },
+      deleteResult: true,
+      databaseDelete: {
+        id: 'notes/mixedcase.md',
+        revision: 'written-revision',
       },
     })
   })

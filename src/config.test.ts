@@ -114,4 +114,29 @@ describe('loadApplyConfig', () => {
       },
     })
   })
+
+  it('disables path obfuscation when its passphrase is explicitly empty', () => {
+    expect(
+      loadApplyConfig({
+        ...fullEnv(),
+        LIVESYNC_OBFUSCATE_PASSPHRASE: '',
+      })._unsafeUnwrap(),
+    ).toEqual({
+      couchdb: {
+        url: 'http://couchdb.local:5984',
+        username: 'obsidian-livesync-backup',
+        password: 'pw',
+        database: 'obsidian-v2',
+        passphrase: 'phrase',
+        obfuscatePassphrase: undefined,
+        enableChunkSplitterV2: true,
+        enableCompression: false,
+        handleFilenameCaseSensitive: false,
+      },
+      exclude: {
+        paths: ['foo/**', 'bar/baz'],
+        secretPatterns: ['sk-[A-Za-z0-9]+'],
+      },
+    })
+  })
 })

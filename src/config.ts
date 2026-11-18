@@ -7,7 +7,7 @@ export interface BackupConfig {
     password: string
     database: string
     passphrase: string
-    obfuscatePassphrase: string
+    obfuscatePassphrase: string | undefined
     enableChunkSplitterV2: boolean
     enableCompression: boolean
     handleFilenameCaseSensitive: boolean
@@ -50,10 +50,14 @@ const required = (env: EnvSource, key: string): Result<string, ConfigError> => {
   return ok(value)
 }
 
-const optional = (env: EnvSource, key: string, fallback: string): string => {
+const optionalPassphrase = (
+  env: EnvSource,
+  key: string,
+  fallback: string,
+): string | undefined => {
   const value = env[key]
-  if (value === undefined || value === '') return fallback
-  return value
+  if (value === undefined) return fallback
+  return value === '' ? undefined : value
 }
 
 const optionalBool = (
@@ -132,9 +136,8 @@ export const loadApplyConfig = (
       password: couchdbPassword.value,
       database: couchdbDatabase.value,
       passphrase: passphrase.value,
-      // Defaults to the same value as `passphrase`; vaults that configured a
-      // distinct path-obfuscation passphrase must set this env explicitly.
-      obfuscatePassphrase: optional(
+      // Defaults to `passphrase`; an empty value disables path obfuscation.
+      obfuscatePassphrase: optionalPassphrase(
         env,
         'LIVESYNC_OBFUSCATE_PASSPHRASE',
         passphrase.value,
