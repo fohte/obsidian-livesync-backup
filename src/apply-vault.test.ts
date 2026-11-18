@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApplyStore } from '#apply'
 
@@ -178,6 +178,11 @@ const snapshotDeleteConflict = (result: boolean) => ({
   databaseDelete: state.databaseDelete,
 })
 
+const snapshotReadyTimeout = <T>(
+  beforeTimeout: 'pending' | 'settled',
+  result: T,
+) => ({ beforeTimeout, result })
+
 const snapshotMissingDocument = async (store: ApplyStore) => ({
   state: (await store.read('notes/new.md'))._unsafeUnwrap(),
   revision: (await store.readRevision('notes/new.md'))._unsafeUnwrap(),
@@ -196,7 +201,45 @@ beforeEach(() => {
   state.put = undefined
 })
 
+afterEach(() => {
+  vi.useRealTimers()
+})
+
 describe('LivesyncApplyStore', () => {
+  it('waits up to 120 seconds for CouchDB to become ready', async () => {
+    vi.useFakeTimers()
+    const store = new LivesyncApplyStore(couchdbConfig())
+    const resultPromise = store.read('notes/timeout.md')
+
+    await vi.advanceTimersByTimeAsync(119_999)
+    const beforeTimeout = await Promise.race([
+      resultPromise.then(() => 'settled' as const),
+      Promise.resolve('pending' as const),
+    ])
+
+    await vi.advanceTimersByTimeAsync(1)
+    const result = await resultPromise
+    const summary = result.match(
+      (value) => ({ kind: 'ok' as const, value }),
+      (error) => ({
+        kind: 'error' as const,
+        name: error.name,
+        message: error.message,
+        context: error.context,
+      }),
+    )
+
+    expect(snapshotReadyTimeout(beforeTimeout, summary)).toEqual({
+      beforeTimeout: 'pending',
+      result: {
+        kind: 'error',
+        name: 'ApplyError',
+        message: 'failed to read a LiveSync file',
+        context: { path: 'notes/timeout.md', operation: 'read' },
+      },
+    })
+  })
+
   it('decodes binary entries and preserves the revision from the same entry', async () => {
     state.entry = {
       data: [Buffer.from([0, 255, 16]).toString('base64')],
