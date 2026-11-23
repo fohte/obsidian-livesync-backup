@@ -16,7 +16,7 @@ pnpm test
 pnpm build
 ```
 
-`pnpm build` runs `scripts/build-vendor.mjs` to esbuild the `DirectFileManipulator` bundle from `vendor/livesync-bridge`, then `scripts/build-app.mjs` to bundle the entry point into `dist/main.js`.
+`pnpm build` runs `scripts/build-vendor.mjs` to esbuild the `DirectFileManipulator` bundle from `vendor/livesync-bridge` into `livesync/vendor-dist`, then `scripts/build-app.mjs` to bundle the entry point into `dist/main.js`.
 
 ## Apply pushed changes
 

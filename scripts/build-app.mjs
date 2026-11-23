@@ -32,7 +32,7 @@ await build({
         b.onResolve(
           { filter: /vendor-dist\/direct-file-manipulator\.mjs$/ },
           (args) => ({
-            path: '../vendor-dist/direct-file-manipulator.mjs',
+            path: '../livesync/vendor-dist/direct-file-manipulator.mjs',
             external: true,
           }),
         )

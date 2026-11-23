@@ -18,7 +18,7 @@
 //
 // To report a wrapped error under a stable fingerprint (for Sentry
 // grouping) without changing control flow, call `captureWithFingerprint`
-// (from `@fohte/service-kit/observability`, see src/bootstrap.ts — only
+// (from `@fohte/service-kit/observability`, see backup/src/bootstrap.ts — only
 // generated when `error_tracking` or `is_web_app` is enabled) right before
 // re-throwing.
 export abstract class BoundaryError extends Error {

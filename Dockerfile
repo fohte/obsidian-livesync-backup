@@ -8,6 +8,8 @@ RUN npm install -g corepack@latest && corepack enable
 
 # Install dependencies first for better layer caching
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY backup/package.json ./backup/package.json
+COPY livesync/package.json ./livesync/package.json
 RUN pnpm install --frozen-lockfile
 
 # Bring in the rest of the sources (incl. vendor/livesync-bridge submodule contents)
@@ -34,7 +36,7 @@ ENV TMPDIR=/tmp
 COPY --from=builder /build/node_modules ./node_modules
 COPY --from=builder /build/package.json ./package.json
 COPY --from=builder /build/dist ./dist
-COPY --from=builder /build/livesync/vendor-dist ./vendor-dist
+COPY --from=builder /build/livesync/vendor-dist ./livesync/vendor-dist
 
 # Run as a non-root user. Avoid pinning a specific uid so PodSecurity
 # restricted policies can override `runAsUser` freely.
