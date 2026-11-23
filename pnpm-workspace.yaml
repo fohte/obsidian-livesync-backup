@@ -14,3 +14,5 @@ minimumReleaseAgeExclude:
   - '@fohte/*'
   # Renovate security update: esbuild@0.28.1
   - esbuild@0.28.1
+  # Renovate security update: minimatch@11.0.1
+  - minimatch@11.0.1
