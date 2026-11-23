@@ -1,17 +1,8 @@
+import type { CouchDbConfig, ExcludeConfig } from 'livesync/config'
 import { err, ok, type Result } from 'neverthrow'
 
 export interface BackupConfig {
-  couchdb: {
-    url: string
-    username: string
-    password: string
-    database: string
-    passphrase: string
-    obfuscatePassphrase: string | undefined
-    enableChunkSplitterV2: boolean
-    enableCompression: boolean
-    handleFilenameCaseSensitive: boolean
-  }
+  couchdb: CouchDbConfig
   git: {
     repository: string
     branch: string
@@ -23,15 +14,12 @@ export interface BackupConfig {
     identity: string
     saTokenPath: string
   }
-  exclude: {
-    paths: string[]
-    secretPatterns: string[]
-  }
+  exclude: ExcludeConfig
 }
 
 export interface ApplyConfig {
-  couchdb: BackupConfig['couchdb']
-  exclude: BackupConfig['exclude']
+  couchdb: CouchDbConfig
+  exclude: ExcludeConfig
 }
 
 export class ConfigError extends Error {

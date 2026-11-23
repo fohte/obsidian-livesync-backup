@@ -54,7 +54,7 @@ const state = vi.hoisted<TestState>(() => ({
   put: undefined,
 }))
 
-vi.mock('../vendor-dist/direct-file-manipulator.mjs', () => {
+vi.mock('livesync/livesync-client', () => {
   class DirectFileManipulator {
     readonly ready: { promise: Promise<void> }
     private readonly obfuscatePassphrase: string | undefined
@@ -169,7 +169,12 @@ vi.mock('../vendor-dist/direct-file-manipulator.mjs', () => {
 
     async close() {}
   }
-  return { DirectFileManipulator }
+  return {
+    createLivesyncClient: (options: {
+      readonly obfuscatePassphrase: string | undefined
+      readonly handleFilenameCaseSensitive: boolean
+    }) => new DirectFileManipulator(options),
+  }
 })
 
 const { LivesyncApplyStore } = await import('#apply-vault')

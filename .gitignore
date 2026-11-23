@@ -1,6 +1,6 @@
 # Build output
 dist/
-vendor-dist/
+livesync/vendor-dist/
 
 # Logs
 logs

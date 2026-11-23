@@ -1,4 +1,4 @@
-import type { BackupConfig } from '#config'
+import type { CouchDbConfig } from '#config'
 import { BoundaryError } from '#errors'
 import { createLivesyncClient, waitForLivesyncReady } from '#livesync-client'
 
@@ -53,7 +53,7 @@ export class MissingChunkError extends BoundaryError {
 export class LivesyncVaultFetcher implements VaultFetcher {
   private readonly dfm: ReturnType<typeof createLivesyncClient>
 
-  constructor(config: BackupConfig['couchdb']) {
+  constructor(config: CouchDbConfig) {
     this.dfm = createLivesyncClient(config)
   }
 

@@ -9,7 +9,10 @@ const entry = resolve(
   root,
   'vendor/livesync-bridge/lib/src/API/DirectFileManipulatorV2.ts',
 )
-const outfile = resolve(root, 'vendor-dist/direct-file-manipulator.mjs')
+const outfile = resolve(
+  root,
+  'livesync/vendor-dist/direct-file-manipulator.mjs',
+)
 
 mkdirSync(dirname(outfile), { recursive: true })
 

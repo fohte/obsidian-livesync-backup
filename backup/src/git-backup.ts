@@ -9,10 +9,9 @@ import { mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, posix, resolve } from 'node:path'
 
+import type { VaultFile } from 'livesync/vault-fetcher'
 import { err, ok, Result, ResultAsync } from 'neverthrow'
 import { type SimpleGit, simpleGit } from 'simple-git'
-
-import type { VaultFile } from '#vault-fetcher'
 
 export class GitOperationError extends Error {
   override readonly name = 'GitOperationError'

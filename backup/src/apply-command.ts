@@ -1,12 +1,12 @@
 import { resolve } from 'node:path'
 
+import { ExcludeFilter } from 'livesync/exclude'
 import { err, ok, Result } from 'neverthrow'
 
 import { applyChanges, ApplyError } from '#apply'
 import { loadApplyChanges } from '#apply-git'
 import { LivesyncApplyStore } from '#apply-vault'
 import { loadApplyConfig } from '#config'
-import { ExcludeFilter } from '#exclude'
 import { SafeLogger } from '#logger'
 
 interface ApplyArguments {

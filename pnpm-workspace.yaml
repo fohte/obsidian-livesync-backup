@@ -1,3 +1,7 @@
+packages:
+  - 'backup'
+  - 'livesync'
+
 allowBuilds:
   # required by vitest's transformer
   esbuild: true

@@ -1,6 +1,10 @@
 {
-  "name": "obsidian-livesync-backup",
+  "name": "obsidian-livesync-tools",
   "private": true,
+  "workspaces": [
+    "backup",
+    "livesync"
+  ],
   "packageManager": "pnpm@12.4.1",
   "type": "module",
   "scripts": {
@@ -8,9 +12,7 @@
     "format:eslint": "eslint --fix .",
     "format:prettier": "prettier --write .",
     "format": "conc -m 1 pnpm:format:eslint pnpm:format:prettier",
-    "test": "conc pnpm:test:type pnpm:test:unit",
-    "test:type": "tsc --noEmit",
-    "test:unit": "vitest run",
+    "test": "pnpm -r run test",
     "build:vendor": "node scripts/build-vendor.mjs",
     "build:app": "node scripts/build-app.mjs",
     "build": "pnpm run build:vendor && pnpm run build:app"
@@ -23,7 +25,6 @@
     "@types/node": "24.13.6",
     "@types/pouchdb": "6.4.2",
     "concurrently": "10.0.5",
-    "diff-match-patch": "1.0.5",
     "esbuild": "0.28.2",
     "eslint": "10.11.0",
     "fflate": "0.8.3",
@@ -42,15 +43,5 @@
     "@ninoseki/eslint-plugin-neverthrow": "0.3.1",
     "vitest": "4.1.11",
     "knip": "6.37.0"
-  },
-  "dependencies": {
-    "@fohte/service-kit": "0.1.14",
-    "@opentelemetry/api": "1.9.1",
-    "minimatch": "10.2.6",
-    "neverthrow": "8.2.0",
-    "simple-git": "3.36.0"
-  },
-  "imports": {
-    "#*": "./src/*.ts"
   }
 }

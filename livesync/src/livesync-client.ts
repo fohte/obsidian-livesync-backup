@@ -1,10 +1,10 @@
-import type { BackupConfig } from '#config'
+import type { CouchDbConfig } from '#config'
 
 // eslint-disable-next-line no-restricted-imports -- the generated vendor bundle is external to the app build
 import { DirectFileManipulator } from '../vendor-dist/direct-file-manipulator.mjs'
 
 export const createLivesyncClient = (
-  config: BackupConfig['couchdb'],
+  config: CouchDbConfig,
 ): DirectFileManipulator => {
   const dfm = new DirectFileManipulator({
     url: config.url,
@@ -23,23 +23,4 @@ export const createLivesyncClient = (
   return dfm
 }
 
-export const waitForLivesyncReady = (
-  ready: Promise<void>,
-  timeoutMs: number,
-  createTimeoutError: (timeoutMs: number) => Error,
-): Promise<void> =>
-  new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(createTimeoutError(timeoutMs))
-    }, timeoutMs)
-    ready.then(
-      () => {
-        clearTimeout(timer)
-        resolve()
-      },
-      (cause: unknown) => {
-        clearTimeout(timer)
-        reject(cause instanceof Error ? cause : new Error(String(cause)))
-      },
-    )
-  })
+export { waitForLivesyncReady } from '#ready'

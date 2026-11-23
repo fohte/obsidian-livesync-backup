@@ -5,11 +5,16 @@ description: '@fohte''s personal backup tool for Self-hosted LiveSync Obsidian v
 error_tracking: true
 is_public: true
 is_web_app: false
-project_name: obsidian-livesync-backup
+project_name: obsidian-livesync-tools
 repo_id: '1241203999'
 repo_language: en
 storybook: false
-subpackages: []
-type: node
+monorepo_node_workspace: true
+subpackages:
+  - name: backup
+    type: node
+  - name: livesync
+    type: node
+type: base
 use_release_please: false
 vrt: false

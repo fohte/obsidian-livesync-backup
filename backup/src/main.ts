@@ -7,7 +7,7 @@ import { runBackup } from '#backup'
 import { loadConfig } from '#config'
 import { GitBackup } from '#git-backup'
 import { SafeLogger } from '#logger'
-import { LivesyncVaultFetcher, MissingChunkError } from '#vault-fetcher'
+import { LivesyncVaultFetcher, MissingChunkError } from 'livesync/vault-fetcher'
 
 const main = async (): Promise<number> => {
   const logger = new SafeLogger()

@@ -5,7 +5,8 @@
   ],
   "exclude": ["**/*.cjs", "vendor", "vendor-dist", "dist"],
   "include": [
-    "src/**/*",
+    "backup/src/**/*",
+    "livesync/src/**/*",
     "scripts/**/*",
     "vitest.config.ts",
     "eslint.config.js"

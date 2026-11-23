@@ -1,10 +1,11 @@
 import { isUtf8 } from 'node:buffer'
 
+import { createLivesyncClient } from 'livesync/livesync-client'
+import { waitForLivesyncReady } from 'livesync/ready'
 import { err, ok, type Result, ResultAsync } from 'neverthrow'
 
 import { ApplyError, type ApplyStore, type VaultState } from '#apply'
 import type { BackupConfig } from '#config'
-import { createLivesyncClient, waitForLivesyncReady } from '#livesync-client'
 
 const READY_TIMEOUT_MS = 120_000
 

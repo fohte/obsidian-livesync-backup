@@ -6,7 +6,7 @@ import { build } from 'esbuild'
 const root = resolve(import.meta.dirname, '..')
 
 await build({
-  entryPoints: [resolve(root, 'src/main.ts')],
+  entryPoints: [resolve(root, 'backup/src/main.ts')],
   outfile: resolve(root, 'dist/main.js'),
   bundle: true,
   format: 'esm',
@@ -18,7 +18,7 @@ await build({
   },
   external: [],
   alias: {
-    '@': resolve(root, 'src'),
+    '@': resolve(root, 'backup/src'),
   },
   tsconfigRaw: {
     compilerOptions: { target: 'es2022', module: 'esnext' },

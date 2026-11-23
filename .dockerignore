@@ -1,6 +1,6 @@
 node_modules
 dist
-vendor-dist
+livesync/vendor-dist
 .git
 .github
 .vscode

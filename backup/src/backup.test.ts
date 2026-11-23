@@ -1,3 +1,4 @@
+import type { VaultFetcher, VaultFile } from 'livesync/vault-fetcher'
 import { ok, type Result } from 'neverthrow'
 import { beforeEach, describe, expect, it } from 'vitest'
 
@@ -6,7 +7,6 @@ import type { BackupConfig } from '#config'
 import type { CommitOutcome, GitOperationError } from '#git-backup'
 import type { Logger, LogLevel } from '#logger'
 import { SafeLogger } from '#logger'
-import type { VaultFetcher, VaultFile } from '#vault-fetcher'
 
 const baseConfig = (): BackupConfig => ({
   couchdb: {

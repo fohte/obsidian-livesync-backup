@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { BackupConfig } from '#config'
+import type { CouchDbConfig } from '#config'
 
 type FakeEntry = false | { path: string; data: string[]; type?: string }
 
@@ -43,7 +43,7 @@ const { LivesyncVaultFetcher, MissingChunkError, VaultFetcherTimeoutError } =
 
 // Every field is irrelevant to the contracts under test: DirectFileManipulator
 // itself is replaced by the mock above, so none of these values are read.
-const couchdbConfig = (): BackupConfig['couchdb'] => ({
+const couchdbConfig = (): CouchDbConfig => ({
   url: 'http://couchdb:5984',
   username: 'u',
   password: 'pw',

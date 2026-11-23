@@ -1,0 +1,21 @@
+{
+  "name": "backup",
+  "private": true,
+  "type": "module",
+  "imports": {
+    "#*": "./src/*.ts"
+  },
+  "scripts": {
+    "test": "conc pnpm:test:type pnpm:test:unit",
+    "test:type": "tsc --noEmit -p tsconfig.json",
+    "test:unit": "vitest run --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@fohte/service-kit": "0.1.14",
+    "@opentelemetry/api": "1.9.1",
+    "diff-match-patch": "1.0.5",
+    "livesync": "workspace:*",
+    "neverthrow": "8.2.0",
+    "simple-git": "3.36.0"
+  }
+}
